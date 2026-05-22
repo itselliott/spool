@@ -4,6 +4,8 @@ A handheld-feel sampler / looper / field recorder inspired by the Teenage Engine
 
 ![Silver vertical handheld with vinyl reel, BPM display, waveform window, eight loop slots, and three big effect knobs.](assets/bg.png)
 
+> 💛 **Free & open source.** If SPOOL earns a place in your workflow, a one-off [Ko-fi tip](https://ko-fi.com/itselliott) or [GitHub Sponsorship](https://github.com/sponsors/itselliott) keeps the lights on. Zero pressure — the plugin stays free either way.
+
 ---
 
 ## What it does

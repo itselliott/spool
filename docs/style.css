@@ -615,6 +615,31 @@ ul.bullet li::marker { color: var(--accent); }
     font-family: "JetBrains Mono", monospace; font-size: 11px;
 }
 
+/* ============================ SUPPORT STRIP ============================ */
+.support {
+    padding: 90px 24px;
+    background: linear-gradient(180deg, transparent, rgba(255,90,20,.06));
+    border-top: 1px solid rgba(255,255,255,.04);
+}
+.support-inner {
+    max-width: 720px; margin: 0 auto; text-align: center;
+}
+.support h2 {
+    font-size: clamp(28px, 3vw, 40px);
+    font-weight: 900; letter-spacing: -.022em;
+    margin: 0 0 12px;
+    background: linear-gradient(180deg, #ffffff 0%, #aaa 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.support p {
+    color: var(--text-dim); font-size: 16px;
+    margin: 0 auto 30px; max-width: 540px;
+}
+.support-cta {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 12px;
+}
+.cta-support .cta-icon { color: var(--accent); }
+
 /* ============================ FOOTER ============================ */
 .footer {
     padding: 60px 24px 40px;

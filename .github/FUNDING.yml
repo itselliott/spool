@@ -1,0 +1,27 @@
+# Funding sources surface as the "Sponsor" button at the top of the
+# repo (and on each user's profile if you fill these in).
+# After you create accounts on these platforms, drop your handles in here
+# and commit. GitHub re-reads this file on push — no other config needed.
+#
+# Use the GitHub-handle / platform-username only, not the full URL.
+
+# GitHub Sponsors (free to set up; GitHub takes 0% fee).
+# Apply at https://github.com/sponsors → then put your username here.
+github: itselliott
+
+# Ko-fi — one-off + recurring; 0% fee on direct donations.
+# Sign up at https://ko-fi.com → use your page handle (e.g. ko-fi.com/<this>).
+ko_fi: itselliott
+
+# Buy Me a Coffee — alt to Ko-fi; 5% fee.
+# Sign up at https://buymeacoffee.com.
+# buy_me_a_coffee: itselliott
+
+# Patreon — subscription model; 5-12% fee.
+# patreon: itselliott
+
+# Liberapay — 0% fee, recurring micro-donations.
+# liberapay: itselliott
+
+# Custom: any URL(s). Use this for Stripe-payment-link, PayPal.me, etc.
+# custom: [ "https://example.com/donate" ]
