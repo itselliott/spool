@@ -276,19 +276,9 @@ em { color: var(--text-dim); font-style: normal; }
     height: auto;
     filter: drop-shadow(0 30px 60px rgba(0,0,0,.5));
 }
-.reel-spin {
-    animation: reel-rotate 6s linear infinite;
-    /* Anchor the spin to the bounding-box centre of the reel <g> so the
-       record rotates in place no matter what viewport scale the SVG is
-       rendering at. transform-box keeps transform-origin local to the
-       element, not the SVG viewport. */
-    transform-box: fill-box;
-    transform-origin: 50% 50%;
-}
-@keyframes reel-rotate {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-}
+/* Reel rotation handled by SMIL <animateTransform> inside the SVG —
+   guaranteed to spin around an absolute viewport-space point with no
+   browser-specific transform-box quirks. */
 .oled-text, .oled-dim, .splwordmark, .knob-value {
     font-family: "JetBrains Mono", monospace;
     font-weight: 800;
@@ -474,37 +464,69 @@ ul.bullet li::marker { color: var(--accent); }
 .install-cards {
     max-width: var(--maxw); margin: 0 auto;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    grid-template-columns: repeat(3, 1fr);     /* always 3-up on wide */
     gap: 20px;
+    align-items: stretch;                       /* cards fill column height */
+}
+@media (max-width: 1020px) {
+    .install-cards { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px) {
+    .install-cards { grid-template-columns: 1fr; }
 }
 .install-card {
     background: var(--panel);
     border: 1px solid var(--panel-2);
     border-radius: var(--radius);
     padding: 28px;
+    /* Flex column so children can space evenly and the card bottoms align
+       across the row regardless of how much content each one has. */
+    display: flex;
+    flex-direction: column;
+    min-width: 0;                       /* critical: lets grid item shrink */
+    overflow: hidden;                   /* clip anything that tries to escape */
     transition: border-color .2s var(--t), transform .2s var(--t);
 }
 .install-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+
 .install-card-head {
     display: flex; align-items: center; gap: 12px;
-    margin-bottom: 8px;
+    margin: 0 0 10px;
+    min-height: 32px;                  /* keeps title row aligned across cards */
 }
-.install-card-head h3 { margin: 0; font-size: 22px; font-weight: 800; }
+.install-card-head h3 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
 .install-badge {
     padding: 4px 10px; border-radius: 999px;
     font-family: "JetBrains Mono", monospace;
     font-size: 10px; letter-spacing: .14em;
     background: var(--accent); color: #0a0a0c;
     font-weight: 800;
+    flex-shrink: 0;
 }
 .install-badge.alt   { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
 .install-badge.build { background: transparent; color: var(--text-dim); border: 1px solid var(--text-dim-2); }
-.install-card > p { color: var(--text-dim); font-size: 14px; margin: 0 0 22px; }
 
-.install-steps { display: grid; gap: 18px; }
-.step { display: grid; grid-template-columns: 28px 1fr; gap: 14px; align-items: start; }
-.step strong { display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
-.step p { margin: 0; color: var(--text-dim); font-size: 13px; }
+.install-card > p {
+    color: var(--text-dim); font-size: 14px;
+    margin: 0 0 22px;
+    min-height: 42px;                  /* keeps lede height matched across cards */
+}
+
+.install-steps {
+    display: grid; gap: 18px;
+    flex: 1;                           /* pushes steps to fill remaining card height */
+    align-content: start;
+}
+.step {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 12px;
+    align-items: start;
+    min-width: 0;                      /* allows code blocks to shrink+scroll */
+}
+.step > div { min-width: 0; }
+.step strong { display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+.step p { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.55; }
 .step-num {
     display: grid; place-items: center;
     width: 26px; height: 26px; border-radius: 6px;
@@ -512,6 +534,7 @@ ul.bullet li::marker { color: var(--accent); }
     color: var(--accent);
     font-family: "JetBrains Mono", monospace;
     font-weight: 800; font-size: 12px;
+    flex-shrink: 0;
 }
 
 /* copy-able command blocks */
@@ -519,15 +542,28 @@ ul.bullet li::marker { color: var(--accent); }
     position: relative;
     background: var(--bg); border: 1px solid var(--panel-2);
     border-radius: 6px;
-    padding: 10px 64px 10px 12px;
+    /* Right padding is reserved for the COPY button so the wrapped code
+       text never goes under it. */
+    padding: 10px 60px 10px 12px;
     margin: 8px 0 0;
-    overflow-x: auto;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
 }
 .copy-block code {
     background: none; border: 0; padding: 0;
     color: var(--text); font-size: 12px;
-    white-space: pre;
+    /* Wrap long commands instead of letting them spill out of the card.
+       pre-wrap preserves intentional newlines (e.g. multi-line cmake);
+       overflow-wrap + word-break let a long URL break mid-string when
+       nothing else will fit. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     display: block;
+    min-width: 0;
 }
 .copy-btn {
     position: absolute; top: 6px; right: 6px;
