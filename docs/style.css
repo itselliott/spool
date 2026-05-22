@@ -278,7 +278,12 @@ em { color: var(--text-dim); font-style: normal; }
 }
 .reel-spin {
     animation: reel-rotate 6s linear infinite;
+    /* Anchor the spin to the bounding-box centre of the reel <g> so the
+       record rotates in place no matter what viewport scale the SVG is
+       rendering at. transform-box keeps transform-origin local to the
+       element, not the SVG viewport. */
     transform-box: fill-box;
+    transform-origin: 50% 50%;
 }
 @keyframes reel-rotate {
     from { transform: rotate(0deg); }
