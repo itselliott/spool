@@ -171,6 +171,12 @@ public:
     // (e.g. the SAMPLE GAIN trim next to the waveform).
     void setCompact (bool shouldBeCompact);
 
+    // Knob-only mode hides the name + value labels entirely and gives the
+    // FULL component bounds to the rotary slider. The visible knob = the
+    // hitbox = the slider. Use when you want a clean rotary without any
+    // text decoration (e.g. the LO-FI dry/wet knob).
+    void setKnobOnly (bool shouldBeKnobOnly);
+
     // Drag-to-reorder: when set, mouse drags on the top icon strip emit
     // onReorderDrop(pointInParent) on release. Used for the JUICE row.
     void setReorderable (bool can) { reorderable = can; }
@@ -203,6 +209,7 @@ private:
     juce::Path   iconPath;
     float        ledAlpha = 0.0f;
     bool         compact  = false;
+    bool         knobOnly = false;
     bool         reorderable = false;
     bool         reorderDragging = false;
 
@@ -232,7 +239,10 @@ public:
     void mouseWheelMove   (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     // Keyboard 1-8 (number row OR numpad) triggers slot 1-8.
-    bool keyPressed (const juce::KeyPress&) override;
+    // Letter keys (a/w/s/e/d/f/t/g/y/h/u/j/k) play the loaded sample
+    // chromatically via the shared MidiKeyboardState; z / x shift octave.
+    bool keyPressed       (const juce::KeyPress&) override;
+    bool keyStateChanged  (bool isKeyDown) override;
 
     // FileDragAndDropTarget --------------------------------------------------
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
@@ -544,6 +554,72 @@ private:
     };
     SnowflakeLookAndFeel snowflakeLnf;
 
+    // LO-FI button — beveled inset frame with pink/purple glow when on,
+    // dim grey LED-look when off. Big enough to read "LO-FI" centred.
+    // Positioned under the SP-L wordmark so it reads as a dedicated mode
+    // switch rather than just another header LED.
+    struct LofiButtonLookAndFeel : juce::LookAndFeel_V4
+    {
+        void drawButtonBackground (juce::Graphics& g, juce::Button& b,
+                                   const juce::Colour&, bool isOver, bool isDown) override
+        {
+            const auto bounds = b.getLocalBounds().toFloat();
+            const bool on = b.getToggleState();
+
+            // 1) Outer beveled frame (inset look — dark with light top rim).
+            g.setColour (juce::Colours::black.withAlpha (0.55f));
+            g.fillRoundedRectangle (bounds, 4.5f);
+            g.setColour (juce::Colours::white.withAlpha (0.20f));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 4.5f, 1.0f);
+
+            // 2) Inner pill recess.
+            auto pill = bounds.reduced (3.5f);
+            if (on)
+            {
+                // Glow halo behind the pill.
+                for (int i = 4; i > 0; --i)
+                {
+                    const float k = (float) i;
+                    g.setColour (juce::Colour::fromRGB (0xff, 0x6e, 0xd0).withAlpha (0.08f / k));
+                    g.fillRoundedRectangle (pill.expanded (k * 1.8f), 5.0f);
+                }
+                // Pink → purple inner fill.
+                juce::ColourGradient grad (
+                    juce::Colour::fromRGB (0xff, 0x6e, 0xd0), pill.getX(), pill.getY(),
+                    juce::Colour::fromRGB (0x8a, 0x3a, 0xee), pill.getX(), pill.getBottom(),
+                    false);
+                g.setGradientFill (grad);
+                g.fillRoundedRectangle (pill, 3.0f);
+                // Specular highlight along the top edge.
+                g.setColour (juce::Colours::white.withAlpha (0.22f));
+                g.fillRoundedRectangle (pill.removeFromTop (pill.getHeight() * 0.35f), 3.0f);
+            }
+            else
+            {
+                // Dark inset.
+                g.setColour (juce::Colour::fromRGB (0x14, 0x14, 0x18));
+                g.fillRoundedRectangle (pill, 3.0f);
+                // Tiny dim LED dot on the left so the button still reads as a switch.
+                const float dotR = pill.getHeight() * 0.20f;
+                g.setColour (juce::Colour::fromRGB (0x40, 0x40, 0x46));
+                g.fillEllipse (pill.getX() + 4.0f, pill.getCentreY() - dotR,
+                               dotR * 2.0f, dotR * 2.0f);
+            }
+            juce::ignoreUnused (isOver, isDown);
+        }
+
+        void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool) override
+        {
+            const bool on = b.getToggleState();
+            g.setColour (on ? juce::Colours::white
+                            : juce::Colour::fromRGB (0x80, 0x80, 0x86));
+            g.setFont   (juce::Font (juce::FontOptions { 10.0f, juce::Font::bold }));
+            g.drawText  (b.getButtonText(), b.getLocalBounds(),
+                         juce::Justification::centred, false);
+        }
+    };
+    LofiButtonLookAndFeel lofiButtonLnf;
+
     juce::Label statusLabel;
 
     // NUDGE: appears only when a loop region is active.
@@ -584,6 +660,84 @@ private:
     juce::TextButton hazePresetButton;  // cycle 6 reverb presets, next to FREEZE
     juce::TextButton clearSampleButton; // ✕ — clears the loaded sample
     juce::TextButton resetParamsButton; // RESET — wipes all knobs (sample + slots untouched)
+    juce::TextButton lofiButton;        // LO-FI master toggle — framed pill under SP-L
+    JuiceKnob        lofiKnob { "" };   // LO-FI dry/wet — shown only when LO-FI is on
+
+    // Pre-rendered film-grain frames. Cycled through on the editor's timer
+    // so the LO-FI overlay has subtle animated noise (tape grain), without
+    // paying for fresh noise generation every paint().
+    static constexpr int kNumGrainFrames = 4;
+    std::array<juce::Image, kNumGrainFrames> grainFrames {};
+    int                                       grainFrameIndex = 0;
+
+    // ---- Bottom MIDI keyboard strip --------------------------------------
+    // Mini keyboard so you can audition the loaded sample chromatically
+    // without a hardware MIDI controller. Toggled via keyboardToggleButton;
+    // the editor grows by kKeyboardStripH when shown. Pitch-bend + mod-wheel
+    // sliders flank the keys and post raw MIDI through the processor's
+    // MidiMessageCollector so they integrate with host MIDI input cleanly.
+    //
+    // SpoolKeyboardComponent (defined in the .cpp) paints keys in the SP-L
+    // brushed-aluminum / dark-panel palette with accent-tint highlights.
+    class SpoolKeyboardComponent : public juce::MidiKeyboardComponent
+    {
+    public:
+        SpoolKeyboardComponent (juce::MidiKeyboardState& s, Orientation o)
+            : juce::MidiKeyboardComponent (s, o) {}
+
+        void setAccent (juce::Colour c) noexcept { accent = c; repaint(); }
+
+        // Base octave for the computer-keyboard mapping. JUCE only exposes
+        // setKeyPressBaseOctave (no getter), so we shadow the value here.
+        void setBaseOctave (int oct) noexcept;
+        int  getBaseOctave() const noexcept { return baseOctave; }
+
+        // Fires whenever the user shifts base octave with z/x. The editor
+        // uses this to scroll the keyboard view so the active octave stays
+        // on-screen (and to repaint anything that displays the octave).
+        std::function<void (int)> onOctaveChange;
+
+        // z = octave down, x = octave up. Other keys fall through to the
+        // base class's standard note-key handling (a/w/s/e/d/f/...).
+        bool keyPressed (const juce::KeyPress&) override;
+
+        void drawWhiteNote (int midiNoteNumber, juce::Graphics&, juce::Rectangle<float> area,
+                            bool isDown, bool isOver,
+                            juce::Colour lineColour, juce::Colour textColour) override;
+        void drawBlackNote (int midiNoteNumber, juce::Graphics&, juce::Rectangle<float> area,
+                            bool isDown, bool isOver, juce::Colour noteFillColour) override;
+
+    private:
+        juce::Colour accent = juce::Colour::fromRGB (0xff, 0x5a, 0x14);
+        int          baseOctave = 6;     // matches MidiKeyboardComponent's default
+    };
+
+    SpoolKeyboardComponent keyboardComponent { processorRef.getKeyboardState(),
+                                               juce::MidiKeyboardComponent::horizontalKeyboard };
+    juce::Slider     pitchBendSlider;
+    juce::Slider     modWheelSlider;
+    juce::TextButton keyboardToggleButton;
+    juce::TextButton arpToggleButton;       // ARP — engages the arpeggiator
+    juce::TextButton arpPatternButton;      // UP / DN / UPDN / RND cycle
+    juce::Label      pitchLabel;            // "PITCH" under the bend slider
+    juce::Label      modLabel;              // "MOD" under the mod slider
+    bool             keyboardVisible = false;
+    int              kbBaseOctave    = 5;   // 'a' = note 60 (= kMidiRootNote)
+    // Letter keys that are currently held → MIDI note they triggered. Note
+    // numbers are computed at note-on so subsequent z/x octave shifts don't
+    // leave stuck voices on the OLD octave when the user finally releases
+    // the key.
+    std::array<std::pair<juce::juce_wchar, int>, 17> kbHeldNoteKeys {};   // {keyChar, note}; note=-1 means free
+    void             setKeyboardVisible (bool shouldBeVisible);
+    void             sendPitchBendMidi  (int bendValue14bit);
+    void             sendModWheelMidi   (int ccValue7bit);
+
+    // Walk all descendants and stop them grabbing keyboard focus on click.
+    // Without this, clicking a knob / button / slider / slot would steal
+    // focus from the editor and the computer-keyboard note keys (a/w/s/...)
+    // would stop responding until the user clicked an empty area of the
+    // panel — a major usability annoyance for live performance.
+    void disableChildrenStealingFocus (juce::Component* root);
 
     // Loop control row: 6 size buttons + cutoff cycle.
     std::array<juce::TextButton, 6> loopSizeButtons {};

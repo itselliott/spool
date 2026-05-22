@@ -231,11 +231,13 @@
 <section id="features" class="features">
   <div class="section-head">
     <div class="kicker">Why SPOOL</div>
-    <h2>Eight slots. Seven effects. One vinyl reel you can&nbsp;scratch.</h2>
+    <h2>Eight slots. Eight voices. A keyboard. A&nbsp;vinyl&nbsp;reel.</h2>
     <p class="lede">
       Everything the TP-7 does for capture, looping and live performance &mdash;
-      ported into a plugin you can drop on any track. Plus features the
-      hardware can't (drag-out, host-tempo sync, 8 colour themes).
+      ported into a plugin you can drop on any track. Plus things the hardware
+      can't: chromatic MIDI playback with a built-in arpeggiator, a one-button
+      LO&minus;FI mode that re-skins the whole device, drag-out export, and
+      host-tempo sync.
     </p>
   </div>
 
@@ -293,6 +295,30 @@
       <div class="feature-icon" aria-hidden="true">&#9728;</div>
       <h3>Theme randomiser</h3>
       <p>Double-click the SP&middot;L logo to randomise the accent colour. The whole panel re-tints in unison. Try it &rarr;</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9835;</div>
+      <h3>Play it like an instrument</h3>
+      <p>Polyphonic 8&minus;voice MIDI sampler. C4&nbsp;=&nbsp;root; every other note is pitch&minus;shifted from there. Routes from any DAW MIDI track or the on-screen keyboard.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9836;</div>
+      <h3>On-screen mini keyboard</h3>
+      <p>Two octaves with pitch wheel + mod wheel. Type <kbd>a</kbd>&hairsp;<kbd>w</kbd>&hairsp;<kbd>s</kbd>&hairsp;<kbd>e</kbd>&hairsp;<kbd>d</kbd>&hairsp;&hellip; to play; <kbd>z</kbd>&hairsp;/&hairsp;<kbd>x</kbd> shifts octaves. SP&middot;L-themed brushed-metal keys.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&infin;</div>
+      <h3>Built-in arpeggiator</h3>
+      <p>Hold a chord, hit <strong>ARP</strong>. Pattern cycle: UP&hairsp;/&hairsp;DN&hairsp;/&hairsp;UPDN&hairsp;/&hairsp;RND. Mod wheel selects the rate (1/4 &rarr; 1/32). Tempo-synced to host BPM.</p>
+    </article>
+
+    <article class="feature feature-lofi">
+      <div class="feature-icon" aria-hidden="true">&#9678;</div>
+      <h3>One-button LO&minus;FI mode</h3>
+      <p>Warm tanh saturation + 5&minus;bit crush + HF rolloff on the master out, plus a full pink&minus;purple chassis reskin with animated film grain. Dialled with the dry/wet knob under the pill.</p>
     </article>
 
   </div>
@@ -408,6 +434,117 @@
           <div class="track-line"></div>
           <div class="track-clip">loop_spool.wav</div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="showcase-row reverse">
+    <div class="showcase-text">
+      <h3>Play it. Sequence it. Arp it.</h3>
+      <p>
+        Toggle the <strong>&#9835; KEYS</strong> pill and the editor grows a
+        bottom drawer: a 2-octave SP&middot;L-themed keyboard, pitch wheel,
+        mod wheel, ARP toggle and pattern cycle. The keys send MIDI through
+        the same engine as a hardware controller &mdash; or just type on your
+        computer keyboard.
+      </p>
+      <ul class="bullet">
+        <li>Computer keys: <kbd>a w s e d f t g y h u j k o l</kbd> chromatic, <kbd>z</kbd>&hairsp;/&hairsp;<kbd>x</kbd> octave shift</li>
+        <li>Pitch wheel: &plusmn;12 semitones, snaps back on release</li>
+        <li>Mod wheel: tremolo when ARP off, arp&nbsp;rate (1/4&hairsp;&rarr;&hairsp;1/32) when ARP on</li>
+        <li>Arp patterns: UP &middot; DN &middot; UPDN &middot; RND, tempo-synced to host BPM</li>
+      </ul>
+    </div>
+    <div class="showcase-art">
+      <svg viewBox="0 0 260 140" class="keyboard-preview" aria-hidden="true">
+        <defs>
+          <linearGradient id="kWhite" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#d8d8dc" />
+            <stop offset=".65" stop-color="#c4c4c8" />
+            <stop offset="1" stop-color="#a0a0a6" />
+          </linearGradient>
+          <linearGradient id="kBlack" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#36363c" />
+            <stop offset="1" stop-color="#10101 4" />
+          </linearGradient>
+        </defs>
+        <!-- backplate -->
+        <rect x="0" y="0" width="260" height="140" rx="8" fill="#1a1a1e" />
+        <!-- arp pills -->
+        <rect x="12" y="10" width="34" height="14" rx="2" fill="var(--accent)" />
+        <text x="29" y="20" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="9" fill="#000">ARP</text>
+        <rect x="50" y="10" width="34" height="14" rx="2" fill="#222226" />
+        <text x="67" y="20" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="9" fill="#e6e6e8">UPDN</text>
+        <!-- pitch wheel -->
+        <rect x="4" y="34" width="14" height="80" rx="3" fill="#222226" />
+        <rect x="6" y="60" width="10" height="6" rx="1" fill="var(--accent)" />
+        <text x="11" y="125" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="6" fill="#c8c8cc">PITCH</text>
+        <!-- mod wheel -->
+        <rect x="242" y="34" width="14" height="80" rx="3" fill="#222226" />
+        <rect x="244" y="86" width="10" height="6" rx="1" fill="var(--accent)" />
+        <text x="249" y="125" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="6" fill="#c8c8cc">MOD</text>
+        <!-- white keys -->
+        <g>
+          <rect x="24" y="34" width="30" height="92" fill="url(#kWhite)" stroke="#4a4a50" />
+          <rect x="54" y="34" width="30" height="92" fill="url(#kWhite)" stroke="#4a4a50" />
+          <rect x="84" y="34" width="30" height="92" fill="url(#kWhite)" stroke="#4a4a50" />
+          <rect x="114" y="34" width="30" height="92" fill="var(--accent)" fill-opacity=".5" stroke="#4a4a50" />
+          <rect x="144" y="34" width="30" height="92" fill="url(#kWhite)" stroke="#4a4a50" />
+          <rect x="174" y="34" width="30" height="92" fill="url(#kWhite)" stroke="#4a4a50" />
+          <rect x="204" y="34" width="30" height="92" fill="url(#kWhite)" stroke="#4a4a50" />
+        </g>
+        <!-- black keys -->
+        <g>
+          <rect x="44" y="34" width="20" height="58" fill="url(#kBlack)" />
+          <rect x="74" y="34" width="20" height="58" fill="url(#kBlack)" />
+          <rect x="134" y="34" width="20" height="58" fill="url(#kBlack)" />
+          <rect x="164" y="34" width="20" height="58" fill="url(#kBlack)" />
+          <rect x="194" y="34" width="20" height="58" fill="url(#kBlack)" />
+        </g>
+        <!-- C labels -->
+        <text x="39" y="121" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="7" fill="#804a18">C3</text>
+        <text x="129" y="121" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="7" fill="#804a18">C4</text>
+        <text x="219" y="121" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="7" fill="#804a18">C5</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="showcase-row">
+    <div class="showcase-text">
+      <h3>One-button LO&minus;FI mode.</h3>
+      <p>
+        Hit the framed pink pill under the SP&middot;L wordmark and the whole
+        device shifts character. The output runs through warm tanh saturation
+        + a gentle 5-bit crush + a 7&nbsp;kHz rolloff, blended by the dry/wet
+        knob directly below the pill. At the same time the chassis re-skins
+        pink&minus;purple with animated film grain &mdash; not a hue overlay,
+        an actual alternate palette.
+      </p>
+      <ul class="bullet">
+        <li>Default 80% knob &rarr; 40% wet (a vibe, not a wall). Push to 100% for full 50% wet.</li>
+        <li>RESET turns LO&minus;FI off and returns the knob to 80%.</li>
+        <li>State persists with the rest of the DAW project save.</li>
+      </ul>
+    </div>
+    <div class="showcase-art">
+      <div class="lofi-demo">
+        <div class="lofi-pill">LO&minus;FI</div>
+        <svg viewBox="0 0 120 120" class="lofi-knob-preview" aria-hidden="true">
+          <defs>
+            <radialGradient id="lofiKBody" cx=".35" cy=".3" r=".75">
+              <stop offset="0" stop-color="#cdcdd0" />
+              <stop offset="1" stop-color="#4a4a50" />
+            </radialGradient>
+            <radialGradient id="lofiKWell" cx=".35" cy=".3" r=".75">
+              <stop offset="0" stop-color="#34343a" />
+              <stop offset="1" stop-color="#06060a" />
+            </radialGradient>
+          </defs>
+          <circle cx="60" cy="60" r="56" fill="url(#lofiKWell)" />
+          <circle cx="60" cy="60" r="48" fill="url(#lofiKBody)" />
+          <line x1="60" y1="60" x2="92" y2="35" stroke="#1a1a1e" stroke-width="3" stroke-linecap="round"/>
+          <line x1="60" y1="60" x2="92" y2="35" stroke="#ff6ed0" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
       </div>
     </div>
   </div>
@@ -600,6 +737,44 @@ cmake --build build --config Release</code><button class="copy-btn" type="button
         <dt>TAPE knob</dt><dd>Saturation wet/dry.</dd>
         <dt>Machine LED</dt><dd>SAT (warm) / WOW (mod) / LO&minus;FI (crush).</dd>
         <dt>Scratch the reel</dt><dd>Grab the vinyl and drag to scrub.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>MIDI sampler</h3>
+      <dl>
+        <dt>MIDI Note-On</dt><dd>Plays the loaded sample at pitch (C4 = note 60 = root).</dd>
+        <dt>Polyphony</dt><dd>8 voices, oldest-voice steal.</dd>
+        <dt>Co-exists with PLAY</dt><dd>Perform live MIDI over a running loop.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>On-screen keyboard</h3>
+      <dl>
+        <dt><span class="key">&#9835; KEYS</span></dt><dd>Toggle the bottom keyboard strip.</dd>
+        <dt><kbd>a w s e d f t g y h u j k</kbd></dt><dd>Chromatic note input. <kbd>a</kbd> = base C.</dd>
+        <dt><kbd>z</kbd> / <kbd>x</kbd></dt><dd>Octave down / up.</dd>
+        <dt>PITCH wheel</dt><dd>&plusmn;12 semitones. Snaps back on release.</dd>
+        <dt>MOD wheel</dt><dd>Tremolo when ARP off, arp&nbsp;rate when ARP on.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>ARP</h3>
+      <dl>
+        <dt><span class="key">ARP</span></dt><dd>Engage the arpeggiator on held notes.</dd>
+        <dt>PATTERN</dt><dd>UP / DN / UPDN / RND cycle.</dd>
+        <dt>MOD wheel zones</dt><dd>0-25% = 1/4, 25-50% = 1/8, 50-75% = 1/16, 75-100% = 1/32.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>LO&minus;FI master</h3>
+      <dl>
+        <dt><span class="key">LO&minus;FI</span> (under SP&middot;L)</dt><dd>Warm tanh saturation + 5-bit crush + HF rolloff. Pink/purple chassis reskin + film grain.</dd>
+        <dt>LO&minus;FI knob</dt><dd>Dry/wet. Default 80% &rarr; 40% wet. Double-click &rarr; 80%.</dd>
+        <dt>RESET</dt><dd>Turns LO&minus;FI off and returns the knob to 80%.</dd>
       </dl>
     </div>
 

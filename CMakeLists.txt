@@ -40,8 +40,8 @@ juce_add_plugin(SPOOL
     DESCRIPTION                   "TP-7-inspired sampler / looper / field recorder"
     VST3_CATEGORIES               Fx Sampler
     AU_MAIN_TYPE                  kAudioUnitType_Effect
-    IS_SYNTH                      FALSE
-    NEEDS_MIDI_INPUT              FALSE
+    IS_SYNTH                      FALSE   # stays an Fx plugin so insert-FX passthrough still works
+    NEEDS_MIDI_INPUT              TRUE    # play the loaded sample chromatically via MIDI notes (C4 = root)
     NEEDS_MIDI_OUTPUT             FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS   TRUE       # spacebar + 1-8 slot keys
     COPY_PLUGIN_AFTER_BUILD       FALSE

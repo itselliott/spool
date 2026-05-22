@@ -676,6 +676,57 @@ ul.bullet li::marker { color: var(--accent); }
 }
 .footer-fine a { color: var(--text-dim); }
 
+/* ============================ LO-FI + KEYBOARD SHOWCASE ============================ */
+/* Feature card variant — LO-FI gets a pink/purple gradient tint so it reads
+   as the marquee new feature on the grid without clashing with the
+   accent-coloured rest of the panel. */
+.feature.feature-lofi {
+    background: linear-gradient(180deg,
+        rgba(255, 110, 208, .10), rgba(110, 53, 226, .06)),
+        var(--panel);
+    border-color: rgba(255, 110, 208, .35);
+}
+.feature.feature-lofi .feature-icon { color: #ff6ed0; }
+
+/* Showcase: keyboard preview SVG */
+.keyboard-preview {
+    width: 100%; max-width: 380px;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.45);
+}
+
+/* Showcase: LO-FI demo cluster (pill + knob) */
+.lofi-demo {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px;
+    padding: 28px;
+    background: linear-gradient(160deg,
+        rgba(255, 110, 208, .10) 0%,
+        rgba(110, 53, 226, .14) 100%),
+        rgba(20, 6, 32, .55);
+    border: 1px solid rgba(255, 110, 208, .25);
+    border-radius: 14px;
+}
+.lofi-pill {
+    padding: 6px 14px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, #ff6ed0, #8a3aee);
+    color: white;
+    font-family: "Inter", sans-serif;
+    font-weight: 800; font-size: 12px;
+    letter-spacing: .04em;
+    box-shadow:
+        0 0 0 1px rgba(255,255,255,.18) inset,
+        0 0 18px rgba(255, 110, 208, .55),
+        0 0 30px rgba(255, 110, 208, .25);
+}
+.lofi-knob-preview {
+    width: 120px; height: 120px;
+    filter: drop-shadow(0 0 12px rgba(255, 110, 208, .35));
+}
+
 /* ============================ REVEAL-ON-SCROLL ============================ */
 .reveal {
     opacity: 0; transform: translateY(20px);

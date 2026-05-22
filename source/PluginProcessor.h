@@ -245,6 +245,33 @@ public:
 
     juce::String getLoadedSampleName() const;
 
+    // --- Arpeggiator ---------------------------------------------------------
+    // Engaged via the keyboard's ARP button. While ARP is on, incoming
+    // Note-On events are collected into a held-notes list (the polyphonic
+    // voice manager is bypassed) and the audio thread steps through them at
+    // a BPM-synced rate, retriggering a single voice per step. The Pattern
+    // button cycles the order: UP, DOWN, UP-DOWN, RANDOM.
+    static constexpr int kNumArpModes = 4;
+    static constexpr int kNumArpRates = 4;
+    enum ArpMode { ArpUp = 0, ArpDown = 1, ArpUpDown = 2, ArpRandom = 3 };
+    enum ArpRate { ArpRate14 = 0, ArpRate18 = 1, ArpRate116 = 2, ArpRate132 = 3 };
+    void setArpEnabled (bool e) noexcept { arpEnabled.store (e); }
+    bool isArpEnabled() const noexcept   { return arpEnabled.load(); }
+    void setArpMode (int m) noexcept     { arpMode.store (juce::jlimit (0, kNumArpModes - 1, m)); }
+    int  getArpMode() const noexcept     { return arpMode.load(); }
+    static const char* getArpModeLabel (int m) noexcept;
+    static const char* getArpRateLabel (int r) noexcept;
+
+    // --- On-screen MIDI keyboard --------------------------------------------
+    // The editor exposes a juce::MidiKeyboardComponent that writes Note-On /
+    // Note-Off into this shared state; processBlock merges that into the
+    // host MIDI buffer so taps on the GUI keyboard play the sampler exactly
+    // as if they came from a hardware controller. midiCollector also picks
+    // up pitch-bend / mod-wheel updates from the editor's sliders so we can
+    // ship those without an extra audio-thread queue.
+    juce::MidiKeyboardState&    getKeyboardState() noexcept  { return keyboardState; }
+    juce::MidiMessageCollector& getMidiCollector() noexcept  { return midiCollector; }
+
     // Used by the editor to draw the waveform.
     juce::AudioThumbnail& getThumbnail() noexcept           { return thumbnail; }
     juce::AudioFormatManager& getFormatManager() noexcept   { return formatManager; }
@@ -259,6 +286,20 @@ public:
     // any slot audio, or any slot snapshot — just the live engine state.
     // Used by the red RESET button in the header.
     void resetAllParameters();
+
+    // --- LO-FI master mode ---------------------------------------------------
+    // One-button "cassette / 90s sampler" character: final-stage warm tanh
+    // saturation + gentle bit-crush + HF rolloff. The editor also re-skins
+    // the chassis pink/purple and overlays animated film grain while
+    // engaged, so the whole device visibly shifts character.
+    void setLofiMode (bool on) noexcept { lofiMode.store (on); }
+    bool isLofiMode() const noexcept    { return lofiMode.load(); }
+
+    // LO-FI dry/wet — knob value 0..1 maps to internal wet 0..0.5
+    // (so the knob's max gives 50 % wet, the editor's default 0.8 gives the
+    // 40 % wet level we landed on for taste).
+    void  setLofiMix (float v) noexcept { lofiMix.store (juce::jlimit (0.0f, 1.0f, v)); }
+    float getLofiMix() const noexcept   { return lofiMix.load(); }
 
     // Save / load the entire SPOOL set (samples in all 8 slots + every
     // knob/button/effect state + tempo + signal-path order) to a single
@@ -418,6 +459,63 @@ private:
     double               scratchRateSmoothed { 0.0 };
     float                scratchLpState[kMaxFilterChannels] {};
 
+    // ---- MIDI sampler ------------------------------------------------------
+    // Polyphonic voice manager — incoming MIDI Note-On allocates a voice
+    // that reads the currently loaded sample at a rate pitch-shifted from
+    // the root note (C4 / note 60). Note-Off triggers a short release.
+    // Voices share the same audio buffer as the transport playback so MIDI
+    // performance + the PLAY button can coexist for live work.
+    static constexpr int kMidiRootNote = 60;       // C4 plays at original pitch
+    static constexpr int kMaxPolyphony = 8;
+    enum class VoiceStage { Off, Attack, Sustain, Release };
+    struct SamplerVoice
+    {
+        int       midiNote   = -1;        // -1 = inactive slot
+        float     velocity   = 0.0f;      // 0..1
+        double    pos        = 0.0;       // source-sample read position
+        double    rate       = 1.0;       // pitch-shift factor (2^((note-root)/12))
+        float     env        = 0.0f;      // 0..1 envelope amplitude
+        VoiceStage stage     = VoiceStage::Off;
+        uint64_t  ageCounter = 0;         // for voice-stealing
+    };
+    std::array<SamplerVoice, kMaxPolyphony> midiVoices {};
+    uint64_t                                midiVoiceAge = 0;
+
+    // GUI keyboard state — JUCE's MidiKeyboardComponent flips notes here;
+    // processBlock drains it into the incoming MIDI buffer each block.
+    juce::MidiKeyboardState     keyboardState;
+    // Editor-side sliders (pitch bend / mod wheel) push raw MIDI messages
+    // through this collector; processBlock merges them in alongside host
+    // MIDI before the voice manager iterates.
+    juce::MidiMessageCollector  midiCollector;
+
+    // Latest pitch-bend (semitones, ±2 by convention) — applied per-voice
+    // in the sampler synth loop. Mod wheel is currently used as a tremolo
+    // depth on the voice envelope (0 = no tremolo, 1 = full) when ARP is
+    // OFF, and as the arp rate selector (0..1 mapped to 1/4..1/32) when ARP
+    // is ON. The dual role keeps the wheel useful in both modes without
+    // adding a second hardware-style control to the strip.
+    std::atomic<float>          midiPitchBendSemis { 0.0f };
+    std::atomic<float>          midiModWheel       { 0.0f };
+    // Audio-thread-only tremolo phase, advanced per sample when mod wheel
+    // is non-zero.
+    double                      midiTremoloPhase   { 0.0 };
+
+    // ---- Arpeggiator ------------------------------------------------------
+    std::atomic<bool>           arpEnabled { false };
+    std::atomic<int>            arpMode    { ArpUp };
+    // Held-notes list lives on the audio thread (touched only in processBlock
+    // when ARP is on). 16 keys is more than the SP-L sampler is ever going
+    // to need for a meaningful chord.
+    static constexpr int        kMaxHeldNotes = 16;
+    int                         heldNotes[kMaxHeldNotes] {};
+    int                         numHeldNotes        = 0;
+    int                         arpStepIndex        = 0;
+    int                         arpDirection        = 1;        // for UPDN
+    int                         arpCurrentNote      = -1;       // currently sounding
+    double                      arpSamplesUntilStep = 0.0;
+    juce::Random                arpRng;
+
     // Per-channel state for the OUTPUT comp chain (separate from input state).
     float outCompEnv [kMaxFilterChannels] {};
     float outLpState [kMaxFilterChannels] {};
@@ -483,6 +581,17 @@ private:
 
     // LOOP cutoff (edge fade).
     std::atomic<int>     loopCutoffMode { 0 };     // 0 = -12, 1 = -24, 2 = BRICK
+
+    // LO-FI master mode (post-everything stage). Audio-thread-only state
+    // lives below the atomic flag. lofiMix is the user-facing knob value
+    // (0..1), scaled to 0..0.5 wet inside processBlock so the max never
+    // bulldozes the dry tail.
+    std::atomic<bool>    lofiMode      { false };
+    std::atomic<float>   lofiMix       { 0.8f };
+    int                  lofiSrrCounter = 0;
+    float                lofiSrrHold  [kMaxFilterChannels] {};
+    float                lofiLpState  [kMaxFilterChannels] {};
+    juce::Random         lofiRng;
 
     // Audio-thread-only smoothing for transport stop/pause fade.
     float playGainSmoothed = 0.0f;

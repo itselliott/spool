@@ -7,9 +7,17 @@ All notable changes to SPOOL. Format follows [Keep a Changelog](https://keepacha
 Production-ready release. Major polish + new features on top of 1.0.0.
 
 ### Added
-- **DAW state persistence** — `getStateInformation` / `setStateInformation` now fully serialize current sample audio + all 8 slot buffers + every effect parameter + BPM + signal-path order. Save your Ableton project, reopen, everything's back. Standalone auto-restores the last session from `%APPDATA%/SPOOL/last-session.spoolset` on launch.
-- **Insert-FX behaviour** — when no sample is playing, host audio passes straight through. Effects (FILTER, GHOST, HAZE, TAPE) still apply, so SPOOL can be used as a pure effects plugin on any track.
-- **Host BPM sync** — the DAW's transport tempo auto-overrides internal BPM each block. All tempo-synced FX (loop SIZE buttons, FILTER LFO, GHOST delay) follow.
+- **MIDI sampler** — polyphonic 8-voice playback of the loaded sample, chromatic via incoming MIDI notes. C4 (note 60) is the root; everything else is pitch-shifted by 2^((note − 60) / 12). `NEEDS_MIDI_INPUT TRUE` so DAWs route MIDI to SPOOL on insert tracks. Linear-interpolated reads, attack/sustain/release envelopes, oldest-voice steal. Works alongside the PLAY-button transport so you can perform live MIDI over a running loop.
+- **On-screen mini keyboard** — toggle with the **♪ KEYS** pill above the transport row. Editor grows by 130 px to reveal a 2-octave SP-L-themed keyboard, plus pitch-bend and mod wheels flanking it. Plays through the same MIDI sampler.
+- **Computer-keyboard input** — `a w s e d f t g y h u j k o l` plays notes chromatically (`a` = C4 = sample root). **`z`** lowers octave, **`x`** raises. View auto-scrolls so the active range stays visible. Focus stays with the editor after clicking any control, so typing notes keeps working without re-clicking.
+- **Pitch wheel** — ±12 semitones (one octave). Snaps back to centre on release. Wide enough to actually hear on the sampler's pitched playback.
+- **Mod wheel** — drives a 5 Hz amplitude tremolo on every active voice when ARP is OFF. When ARP is ON, the same wheel selects the arp rate in four zones (0-25% = 1/4, 25-50% = 1/8, 50-75% = 1/16, 75-100% = 1/32).
+- **Arpeggiator** — engage with the on-keyboard **ARP** pill. Held notes go into a 16-deep list and the audio thread steps through them at BPM-synced rate, dedicating one voice slot to the arp. **PATTERN** cycle: UP / DN / UPDN / RND.
+- **LO-FI master mode** — framed pink-purple pill under the SP-L wordmark engages a one-button "cassette / 90s sampler" character on the final output: warm tanh saturation + gentle 5-bit crush + 7 kHz HF rolloff, blended via the LO-FI dry/wet knob (rotary directly below the pill). Default knob 80 → 40 % wet; max 100 → 50 % wet. RESET returns the knob to 80.
+- **LO-FI visual mode** — when LO-FI is on, the entire chassis re-skins to a pink/magenta/aubergine palette (no hue overlay — the actual body gradient + panel + seam colours change), the SP-L wordmark text re-tints dark purple, and an animated film-grain overlay shimmers across the device at ~10 Hz.
+- **DAW state persistence** — `getStateInformation` / `setStateInformation` now fully serialize current sample audio + all 8 slot buffers + every effect parameter + BPM + signal-path order + LO-FI mode / mix (state v3, backward-compatible to v1). Save your Ableton project, reopen, everything's back. Standalone auto-restores the last session from `%APPDATA%/SPOOL/last-session.spoolset` on launch.
+- **Insert-FX behaviour** — when no sample is playing, host audio passes straight through. Effects (FILTER, GHOST, HAZE, TAPE, LO-FI) still apply, so SPOOL can be used as a pure effects plugin on any track.
+- **Host BPM sync** — the DAW's transport tempo auto-overrides internal BPM each block. All tempo-synced FX (loop SIZE buttons, FILTER LFO, GHOST delay, ARP rate) follow.
 - **Drag-out the ↓ export button** — drops the current loop region as a 24-bit WAV onto any DAW track, Explorer, or Finder. Effects baked in.
 - **First-launch welcome card** — credits + donation prompt on first open per machine. Dismissable for good.
 - **Extended standalone Options menu** — JUCE's hamburger now includes: About / Credits, Report a Bug (mailto:elliottdevs@gmail.com), GitHub, Tip on Ko-fi, plus the version label.
@@ -37,6 +45,9 @@ Production-ready release. Major polish + new features on top of 1.0.0.
 - **Theme propagation** — double-click SP·L now retints **all** accent widgets (was missing INPUT knob, LOOP/OVERDUB buttons, value labels, several cycle pills).
 - **Welcome overlay text** uses ASCII separators (`/`, `--`) — earlier UTF-8 bullet/em-dash didn't render in JUCE's default Windows font.
 - **C4456 `bitLevels` shadowing warning** fixed by renaming the tape-stage local.
+- **REC captured MIDI-triggered playback** — recording previously snapshotted the input buffer BEFORE the MIDI voices rendered, so MIDI-played notes never made it into the recording. Now both input and MIDI voices write to a shared block slice; `recordPos` advances uniformly at the end of the block.
+- **Slot keys 1-8 no longer auto-loop** — loading a slot used to force `looping = true` regardless of the LOOP button state. Now slots play once unless LOOP is engaged, matching the LOOP button's actual setting.
+- **Keyboard focus survives clicks** — every interactive child has `setMouseClickGrabsKeyboardFocus(false)`, plus the editor re-grabs focus at construction, after welcome-overlay dismissal, after LO-FI toggle. Computer-keyboard notes / slot keys / spacebar keep working without needing to click the panel between knob adjustments.
 
 ### Aesthetic
 - **Brushed-metal notched-pot knobs** replace the flat digital dials — 3D radial gradient body, faint brushing rings, dark recessed well with specular highlight on the rim, 13 tick marks where the active position glows accent.

@@ -9,6 +9,11 @@ namespace
     constexpr int kWindowH = 920;
     constexpr int kBezel   = 18;       // outer aluminium frame inset
 
+    // MIDI keyboard strip — sits BELOW the chassis when the user reveals it
+    // via the ♪ KEYS toggle, growing the editor by this much. Chosen so two
+    // octaves at the configured key width plus pitch/mod sliders fit cleanly.
+    constexpr int kKeyboardStripH = 130;
+
     // Machined-aluminium palette.
     const auto kAlumLight   = juce::Colour::fromRGB (0xd8, 0xd8, 0xdc);   // body highlight
     const auto kAlumMid     = juce::Colour::fromRGB (0xc4, 0xc4, 0xc8);   // body base
@@ -33,6 +38,38 @@ namespace
     const auto kPanel = kPanelDark;
     const auto kDim   = juce::Colour::fromRGB (0x44, 0x44, 0x48);
     const auto kText  = juce::Colour::fromRGB (0x18, 0x18, 0x1c);
+
+    // ---- LO-FI alternate palette (used when LO-FI mode is engaged) -------
+    // Cosmetics only — the audio chain runs independently in the processor.
+    // Picked to read as a pinkish-purple "vapor wave" device: dusty pink
+    // anodised body, deep aubergine inset panel, magenta accent for the
+    // wordmark + dark text fall-back.
+    const auto kLofiBodyLight = juce::Colour::fromRGB (0xff, 0xb6, 0xe4);  // hot pink chassis highlight
+    const auto kLofiBodyMid   = juce::Colour::fromRGB (0xe0, 0x7a, 0xc8);  // mid magenta
+    const auto kLofiBodyDark  = juce::Colour::fromRGB (0x6a, 0x35, 0x8e);  // deep purple shadow
+    const auto kLofiPanelDark = juce::Colour::fromRGB (0x28, 0x0c, 0x3a);  // aubergine inset
+    const auto kLofiPanelMid  = juce::Colour::fromRGB (0xa8, 0x70, 0xc8);  // lavender mid panel
+    const auto kLofiSeam      = juce::Colour::fromRGB (0x5a, 0x2a, 0x7a);
+    const auto kLofiScrew     = juce::Colour::fromRGB (0x42, 0x18, 0x4e);
+    const auto kLofiText      = juce::Colour::fromRGB (0x2a, 0x08, 0x3a);  // dark on pink body
+    const auto kLofiAccent    = juce::Colour::fromRGB (0xff, 0x5e, 0xc8);  // hot pink accent
+
+    // Generate a single film-grain ARGB image of the requested size. Random
+    // grey pixels with random alpha — the painter blends them at low overall
+    // opacity so the noise reads as fine tape grain, not snow.
+    juce::Image makeGrainImage (int w, int h, int seed)
+    {
+        juce::Image img (juce::Image::ARGB, w, h, true);
+        juce::Random rng (seed);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+            {
+                const auto a = (juce::uint8) rng.nextInt (juce::Range<int> (0, 80));
+                const auto v = (juce::uint8) rng.nextInt (juce::Range<int> (110, 255));
+                img.setPixelAt (x, y, juce::Colour::fromRGBA (v, v, v, a));
+            }
+        return img;
+    }
 }
 
 //==============================================================================
@@ -160,9 +197,27 @@ void JuiceKnob::setCompact (bool shouldBeCompact)
     resized();
 }
 
+void JuiceKnob::setKnobOnly (bool shouldBeKnobOnly)
+{
+    if (knobOnly == shouldBeKnobOnly) return;
+    knobOnly = shouldBeKnobOnly;
+    nameLabel .setVisible (! knobOnly);
+    valueLabel.setVisible (! knobOnly);
+    resized();
+}
+
 void JuiceKnob::resized()
 {
     auto r = getLocalBounds();
+
+    // Knob-only: slider fills the whole component, no label space wasted.
+    // Hitbox = visible knob = bounds — exactly what the user sees.
+    if (knobOnly)
+    {
+        slider.setBounds (r);
+        return;
+    }
+
     const int topH = compact ? 34 : 58;        // bigger name slot for bigger icons
     nameLabel.setBounds (r.removeFromTop (topH));
     // Fill the entire area below nameLabel — no inner reduction — so the
@@ -682,6 +737,46 @@ SpoolAudioProcessorEditor::SpoolAudioProcessorEditor (SpoolAudioProcessor& p)
     };
     addAndMakeVisible (resetParamsButton);
 
+    // --- LO-FI master toggle: framed pill under the SP-L wordmark.
+    //     When ON, the chassis re-skins to a pink-purple palette, an
+    //     animated film-grain overlay drops on top, and the final audio
+    //     output goes through 40% wet tanh saturation + gentle bit-crush
+    //     + HF rolloff. Unique look so it reads as a global mode switch,
+    //     not just another LED.
+    lofiButton.setButtonText ("LO-FI");
+    lofiButton.setClickingTogglesState (true);
+    lofiButton.setToggleState (processorRef.isLofiMode(), juce::dontSendNotification);
+    lofiButton.setLookAndFeel (&lofiButtonLnf);
+    lofiButton.onClick = [this]
+    {
+        const bool on = lofiButton.getToggleState();
+        processorRef.setLofiMode (on);
+        lofiButton.repaint();
+        lofiKnob.setVisible (on);   // dry/wet knob only when LO-FI is on
+        repaint();          // re-skin chassis + start/stop grain overlay
+        grabKeyboardFocus(); // make sure 1-8 / space / letter keys still fire
+    };
+    addAndMakeVisible (lofiButton);
+
+    // LO-FI dry/wet — same brushed-metal style as the JUICE knobs but in
+    // KNOB-ONLY mode (no name/value labels, slider fills the whole bounds
+    // so the hitbox matches the visible knob exactly). Hot-pink accent so
+    // it visually pairs with the LO-FI pill above it. Hidden when LO-FI is
+    // off; appears directly below the pill (same centreline) when LO-FI
+    // is engaged so the mix is one motion away from the toggle.
+    lofiKnob.getSlider().setLookAndFeel (&brushedKnobLnf);
+    lofiKnob.getSlider().setRange (0.0, 1.0, 0.001);
+    lofiKnob.getSlider().setValue ((double) processorRef.getLofiMix(), juce::dontSendNotification);
+    lofiKnob.getSlider().setDoubleClickReturnValue (true, 0.8);   // 80 % = factory default
+    lofiKnob.setAccent (juce::Colour::fromRGB (0xff, 0x6e, 0xd0));
+    lofiKnob.setKnobOnly (true);     // rotary fills bounds, hitbox = visible knob
+    lofiKnob.getSlider().onValueChange = [this]
+    {
+        processorRef.setLofiMix ((float) lofiKnob.getSlider().getValue());
+    };
+    addChildComponent (lofiKnob);     // hidden until LO-FI is toggled on
+    lofiKnob.setVisible (processorRef.isLofiMode());
+
     // --- Folder browse + prev/next sample (in OLED area) -------------------
     auto styleOledBtn = [this] (juce::TextButton& b)
     {
@@ -1074,13 +1169,176 @@ SpoolAudioProcessorEditor::SpoolAudioProcessorEditor (SpoolAudioProcessor& p)
 
     processorRef.getThumbnail().addChangeListener (this);
 
+    // ---- Bottom MIDI keyboard ---------------------------------------------
+    // Toggle button lives at the bottom-centre of the chassis (above the big
+    // transport row in resized()). Hidden by default; clicking grows the
+    // editor by kKeyboardStripH and shows the keyboard + pitch + mod sliders.
+    keyboardToggleButton.setButtonText (juce::String::fromUTF8 ("\xE2\x99\xAA KEYS")); // ♪ KEYS
+    keyboardToggleButton.setClickingTogglesState (true);
+    keyboardToggleButton.setColour (juce::TextButton::buttonColourId,   kPanelDark);
+    keyboardToggleButton.setColour (juce::TextButton::buttonOnColourId, kAccent);
+    keyboardToggleButton.setColour (juce::TextButton::textColourOffId,
+                                    juce::Colour::fromRGB (0xe6, 0xe6, 0xe8));
+    keyboardToggleButton.setColour (juce::TextButton::textColourOnId,   juce::Colours::black);
+    keyboardToggleButton.onClick = [this]
+    {
+        setKeyboardVisible (keyboardToggleButton.getToggleState());
+    };
+    addAndMakeVisible (keyboardToggleButton);
+
+    // The keyboard itself — JUCE's component reads/writes the shared
+    // MidiKeyboardState on the processor. Start hidden; setKeyboardVisible
+    // toggles visibility + window size. The colour IDs configure JUCE's
+    // built-in painters, but SpoolKeyboardComponent overrides drawWhiteNote
+    // and drawBlackNote so the keys actually paint with the SP-L brushed
+    // aluminium / dark panel palette + accent-tint hover/press.
+    keyboardComponent.setLowestVisibleKey (48);   // C3 .. C5 covers ~2 octaves comfortably
+    keyboardComponent.setKeyWidth (18.0f);
+    keyboardComponent.setAccent (kAccent);
+
+    // Computer keyboard plays the on-screen keys: 'a' starts at C4 (note 60
+    // — the SP sampler's MIDI root), then w/s/e/d/f/t/g/y/h/u/j/k chromatic
+    // up. z lowers the octave, x raises (handled in SpoolKeyboardComponent).
+    // When the octave changes we scroll the keyboard view so the active
+    // range stays visible.
+    keyboardComponent.setBaseOctave (5);   // 5 → 'a' = note 60 = C4
+    keyboardComponent.onOctaveChange = [this] (int oct)
+    {
+        const int baseNote = oct * 12;
+        keyboardComponent.setLowestVisibleKey (juce::jmax (0, baseNote - 5));
+    };
+    keyboardComponent.setWantsKeyboardFocus (true);
+    keyboardComponent.setColour (juce::MidiKeyboardComponent::keySeparatorLineColourId,
+                                 juce::Colour::fromRGB (0x20, 0x20, 0x24));
+    keyboardComponent.setColour (juce::MidiKeyboardComponent::textLabelColourId,
+                                 juce::Colour::fromRGB (0x80, 0x52, 0x18));
+    keyboardComponent.setColour (juce::MidiKeyboardComponent::upDownButtonBackgroundColourId,
+                                 kPanelDark);
+    keyboardComponent.setColour (juce::MidiKeyboardComponent::upDownButtonArrowColourId,
+                                 juce::Colour::fromRGB (0xe6, 0xe6, 0xe8));
+    keyboardComponent.setColour (juce::MidiKeyboardComponent::shadowColourId,
+                                 juce::Colours::black.withAlpha (0.55f));
+    addChildComponent (keyboardComponent);
+
+    // ARP + PATTERN — tiny dark pills above the keyboard. Match the rest of
+    // the chassis cycle buttons (loop SIZE / FILTER Q / etc.). ARP toggles
+    // on/off; PATTERN cycles UP / DN / UPDN / RND. The mod-wheel role flips
+    // automatically: tremolo when ARP off, arp-rate (1/4..1/32) when ARP on.
+    auto styleArpBtn = [this] (juce::TextButton& b, const juce::String& text)
+    {
+        b.setButtonText (text);
+        b.setColour (juce::TextButton::buttonColourId,   kPanelDark);
+        b.setColour (juce::TextButton::buttonOnColourId, kAccent);
+        b.setColour (juce::TextButton::textColourOffId,
+                     juce::Colour::fromRGB (0xe6, 0xe6, 0xe8));
+        b.setColour (juce::TextButton::textColourOnId,   juce::Colours::black);
+        addChildComponent (b);
+    };
+    styleArpBtn (arpToggleButton, "ARP");
+    arpToggleButton.setClickingTogglesState (true);
+    arpToggleButton.setToggleState (processorRef.isArpEnabled(), juce::dontSendNotification);
+    arpToggleButton.onClick = [this]
+    {
+        processorRef.setArpEnabled (arpToggleButton.getToggleState());
+    };
+    styleArpBtn (arpPatternButton, SpoolAudioProcessor::getArpModeLabel (processorRef.getArpMode()));
+    arpPatternButton.onClick = [this]
+    {
+        const int next = (processorRef.getArpMode() + 1) % SpoolAudioProcessor::kNumArpModes;
+        processorRef.setArpMode (next);
+        arpPatternButton.setButtonText (SpoolAudioProcessor::getArpModeLabel (next));
+    };
+
+    // PITCH BEND slider — vertical, snaps back to 0 (centre) on release.
+    // Full range is ±12 semitones (one octave) — wide enough to actually
+    // hear, since a ±2-semi standard keyboard wheel barely registers on the
+    // SP sampler's pitched playback.
+    pitchBendSlider.setSliderStyle (juce::Slider::LinearVertical);
+    pitchBendSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    pitchBendSlider.setRange (-1.0, 1.0, 0.001);
+    pitchBendSlider.setValue (0.0, juce::dontSendNotification);
+    pitchBendSlider.setDoubleClickReturnValue (true, 0.0);
+    pitchBendSlider.setColour (juce::Slider::trackColourId,      kAccent);
+    pitchBendSlider.setColour (juce::Slider::backgroundColourId, kPanelDark);
+    pitchBendSlider.setColour (juce::Slider::thumbColourId,      kAccent.brighter (0.2f));
+    pitchBendSlider.onValueChange = [this]
+    {
+        // Map -1..+1 to 14-bit MIDI 0..16383 centred at 8192.
+        const int bend = 8192 + (int) std::round (pitchBendSlider.getValue() * 8191.0);
+        sendPitchBendMidi (juce::jlimit (0, 16383, bend));
+    };
+    pitchBendSlider.onDragEnd = [this]
+    {
+        // Snap back to centre on release — classic hardware pitch-wheel feel.
+        pitchBendSlider.setValue (0.0, juce::sendNotificationSync);
+    };
+    addChildComponent (pitchBendSlider);
+
+    // MOD wheel — vertical slider, stays where the user puts it.
+    // When ARP is OFF the wheel drives a deep amplitude tremolo on every
+    // active voice. When ARP is ON it selects the arp rate (1/4..1/32 in
+    // four zones). Both are immediately audible while a note is held.
+    modWheelSlider.setSliderStyle (juce::Slider::LinearVertical);
+    modWheelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    modWheelSlider.setRange (0.0, 1.0, 0.001);
+    modWheelSlider.setValue (0.0, juce::dontSendNotification);
+    modWheelSlider.setColour (juce::Slider::trackColourId,      kAccent);
+    modWheelSlider.setColour (juce::Slider::backgroundColourId, kPanelDark);
+    modWheelSlider.setColour (juce::Slider::thumbColourId,      kAccent.brighter (0.2f));
+    modWheelSlider.onValueChange = [this]
+    {
+        const int cc = (int) std::round (modWheelSlider.getValue() * 127.0);
+        sendModWheelMidi (juce::jlimit (0, 127, cc));
+    };
+    addChildComponent (modWheelSlider);
+
+    // PITCH / MOD captions under each wheel so users know what they do.
+    auto styleWheelLabel = [this] (juce::Label& l, const juce::String& text)
+    {
+        l.setText (text, juce::dontSendNotification);
+        l.setJustificationType (juce::Justification::centred);
+        l.setColour (juce::Label::textColourId,
+                     juce::Colour::fromRGB (0xc8, 0xc8, 0xcc));
+        l.setFont (juce::Font (juce::FontOptions { 8.5f, juce::Font::bold }));
+        l.setInterceptsMouseClicks (false, false);
+        addChildComponent (l);
+    };
+    styleWheelLabel (pitchLabel, "PITCH");
+    styleWheelLabel (modLabel,   "MOD");
+
+    // Initialise tracked-letter-key slots as empty.
+    for (auto& slot : kbHeldNoteKeys) { slot.first = 0; slot.second = -1; }
+
     lastTickMs = juce::Time::getMillisecondCounterHiRes();
     startTimerHz (30);
+
+    // Pre-render film-grain frames so the timer can cycle them cheaply when
+    // LO-FI is engaged. Smaller image (tiled stretched) is faster to draw
+    // than a full-resolution one and still reads as fine grain.
+    for (int i = 0; i < kNumGrainFrames; ++i)
+        grainFrames[(size_t) i] = makeGrainImage (128, 220, 0xC0FFEE + i * 31);
 
     // First-launch welcome / credits / donation card. Stays modal-feeling
     // (dims the panel behind it) until the user clicks "Got it" — never
     // shown again on subsequent launches.
     maybeShowWelcomeOverlay();
+
+    // Keep computer-keyboard input alive after clicking ANY control on the
+    // panel. Without this, JUCE's default focus model passes focus to the
+    // clicked widget, which would then swallow letter keys — forcing the
+    // user to click an empty spot before typing notes again.
+    disableChildrenStealingFocus (this);
+
+    // Defer the focus grab until the editor has actually been added to a
+    // window — grabKeyboardFocus is a no-op until the component is on
+    // screen. Without this, the 1-8 slot keys + spacebar wouldn't fire
+    // on a fresh launch until the user clicked somewhere on the panel.
+    juce::Component::SafePointer<SpoolAudioProcessorEditor> safeThis (this);
+    juce::MessageManager::callAsync ([safeThis]
+    {
+        if (safeThis != nullptr)
+            safeThis->grabKeyboardFocus();
+    });
 }
 
 SpoolAudioProcessorEditor::~SpoolAudioProcessorEditor()
@@ -1105,18 +1363,47 @@ SpoolAudioProcessorEditor::~SpoolAudioProcessorEditor()
     tapeMachineButton.setLookAndFeel (nullptr);
     freezeButton     .setLookAndFeel (nullptr);
     resetParamsButton.setLookAndFeel (nullptr);
+    lofiButton       .setLookAndFeel (nullptr);
+    lofiKnob.getSlider().setLookAndFeel (nullptr);
     processorRef.getThumbnail().removeChangeListener (this);
 }
 
 //==============================================================================
 void SpoolAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    auto outer = getLocalBounds();
+    // The chassis is always the top kWindowH pixels of the editor; if the
+    // MIDI keyboard strip is showing, we paint it separately below so the
+    // chrome / screws / rounded rectangle stay anchored to the device body.
+    auto outer = getLocalBounds().withHeight (juce::jmin (kWindowH, getHeight()));
+
+    // ---- Pick palette: hi-fi default vs LO-FI alternate -------------------
+    const bool lofi = processorRef.isLofiMode();
+    const juce::Colour bodyLight = lofi ? kLofiBodyLight : kAlumLight;
+    const juce::Colour bodyMid   = lofi ? kLofiBodyMid   : kAlumMid;
+    const juce::Colour bodyDark  = lofi ? kLofiBodyDark  : kAlumDark;
+    const juce::Colour panelMid  = lofi ? kLofiPanelMid  : kPanelMid;
+    const juce::Colour seam      = lofi ? kLofiSeam      : kSeam;
+    const juce::Colour screw     = lofi ? kLofiScrew     : kScrew;
+
+    // 0) MIDI keyboard backdrop (if visible) — flat dark panel below the
+    // chassis so the keyboard component reads as a separate "drawer" pulled
+    // out from the device. Drawn FIRST so the chassis below covers any
+    // anti-aliased rounding overlap.
+    if (keyboardVisible && getHeight() > kWindowH)
+    {
+        auto kbBack = getLocalBounds().withTop (kWindowH);
+        g.setColour (lofi ? juce::Colour::fromRGB (0x18, 0x06, 0x28)
+                          : juce::Colour::fromRGB (0x1a, 0x1a, 0x1e));
+        g.fillRect (kbBack);
+        g.setColour (seam.withAlpha (0.55f));
+        g.drawHorizontalLine (kWindowH, 0.0f, (float) getWidth());
+    }
 
     // 1) Body background: custom image cropped-to-fill if present, otherwise
-    // fall back to the machined-aluminium gradient. The image keeps its
-    // native resolution — we just show whichever portion fits.
-    if (backgroundImage.isValid())
+    // fall back to the machined-aluminium gradient (or pink/purple LO-FI
+    // alt-palette gradient). The image is suppressed in LO-FI mode so the
+    // skin swap reads cleanly.
+    if (backgroundImage.isValid() && ! lofi)
     {
         const juce::RectanglePlacement placement (juce::RectanglePlacement::centred
                                                 | juce::RectanglePlacement::fillDestination);
@@ -1127,25 +1414,25 @@ void SpoolAudioProcessorEditor::paint (juce::Graphics& g)
     }
     else
     {
-        juce::ColourGradient bodyGrad (kAlumLight, 0.0f, 0.0f,
-                                       kAlumDark, 0.0f, (float) getHeight(), false);
-        bodyGrad.addColour (0.5, kAlumMid);
+        juce::ColourGradient bodyGrad (bodyLight, 0.0f, 0.0f,
+                                       bodyDark, 0.0f, (float) outer.getHeight(), false);
+        bodyGrad.addColour (0.5, bodyMid);
         g.setGradientFill (bodyGrad);
         g.fillRoundedRectangle (outer.toFloat(), 14.0f);
     }
 
     // Subtle precision seam tracing the body ~6px in.
-    g.setColour (kSeam.withAlpha (0.55f));
+    g.setColour (seam.withAlpha (0.55f));
     g.drawRoundedRectangle (outer.reduced (6).toFloat(), 10.0f, 0.7f);
 
     // 2) Inner sub-panel (dark inset where controls live) -------------------
     auto inner = outer.reduced (kBezel);
-    juce::ColourGradient panelGrad (kPanelMid.darker (0.15f), 0.0f, (float) inner.getY(),
-                                    kPanelMid.darker (0.05f), 0.0f, (float) inner.getBottom(), false);
+    juce::ColourGradient panelGrad (panelMid.darker (0.15f), 0.0f, (float) inner.getY(),
+                                    panelMid.darker (0.05f), 0.0f, (float) inner.getBottom(), false);
     g.setGradientFill (panelGrad);
     g.fillRoundedRectangle (inner.toFloat(), 10.0f);
 
-    g.setColour (kSeam.withAlpha (0.65f));
+    g.setColour (seam.withAlpha (0.65f));
     g.drawRoundedRectangle (inner.toFloat(), 10.0f, 1.0f);
 
     // 3) Corner screws ------------------------------------------------------
@@ -1153,7 +1440,7 @@ void SpoolAudioProcessorEditor::paint (juce::Graphics& g)
     const int screwInset = kBezel - 3;
     auto drawScrew = [&] (int cx, int cy)
     {
-        g.setColour (kScrew);
+        g.setColour (screw);
         g.fillEllipse ((float) (cx - screwR), (float) (cy - screwR),
                        (float) (screwR * 2), (float) (screwR * 2));
         g.setColour (kScrewDark);
@@ -1166,15 +1453,15 @@ void SpoolAudioProcessorEditor::paint (juce::Graphics& g)
     };
     drawScrew (screwInset,                 screwInset);
     drawScrew (getWidth() - screwInset,    screwInset);
-    drawScrew (screwInset,                 getHeight() - screwInset);
-    drawScrew (getWidth() - screwInset,    getHeight() - screwInset);
+    drawScrew (screwInset,                 outer.getBottom() - screwInset);
+    drawScrew (getWidth() - screwInset,    outer.getBottom() - screwInset);
 
     // 4) Header strip: SP-L wordmark left, OLED display right --------------
     auto header = juce::Rectangle<int> (inner.getX() + 12, inner.getY() + 8,
                                         inner.getWidth() - 24, 78);
 
     // Big wordmark — visible "SP-L" (the app itself is still SPOOL internally).
-    g.setColour (kText);
+    g.setColour (lofi ? kLofiText : kText);
     g.setFont   (juce::Font (juce::FontOptions { 56.0f, juce::Font::bold }));
     g.drawText  ("SP-L", header.removeFromLeft (200), juce::Justification::centredLeft, false);
 
@@ -1275,20 +1562,40 @@ void SpoolAudioProcessorEditor::paint (juce::Graphics& g)
 
 void SpoolAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 {
+    auto chassis = getLocalBounds().withHeight (juce::jmin (kWindowH, getHeight()));
+    auto inner = chassis.reduced (kBezel);
+
     // Subtle background-image overlay drawn ON TOP of all controls. Gives the
     // whole device a unified weathered/etched look — like the leaves and
     // grunge are printed into the surface of the device. Low opacity so
     // controls stay readable.
-    if (! backgroundImage.isValid()) return;
+    if (backgroundImage.isValid())
+    {
+        g.saveState();
+        g.reduceClipRegion (inner);
+        g.setOpacity (0.12f);
+        const juce::RectanglePlacement placement (juce::RectanglePlacement::centred
+                                                | juce::RectanglePlacement::fillDestination);
+        g.drawImage (backgroundImage, chassis.toFloat(), placement, false);
+        g.restoreState();
+    }
 
-    auto inner = getLocalBounds().reduced (kBezel);
-    g.saveState();
-    g.reduceClipRegion (inner);
-    g.setOpacity (0.12f);
-    const juce::RectanglePlacement placement (juce::RectanglePlacement::centred
-                                            | juce::RectanglePlacement::fillDestination);
-    g.drawImage (backgroundImage, getLocalBounds().toFloat(), placement, false);
-    g.restoreState();
+    // LO-FI grain: tile one of the pre-rendered noise frames across the
+    // whole device. The timer rotates frameIndex so the grain visibly
+    // shimmers — film/tape rather than dead static. No colour overlay; the
+    // chassis already re-skinned itself pink/purple in paint().
+    if (processorRef.isLofiMode())
+    {
+        const int idx = juce::jlimit (0, kNumGrainFrames - 1, grainFrameIndex);
+        const auto& grain = grainFrames[(size_t) idx];
+        if (grain.isValid())
+        {
+            g.setOpacity (0.45f);
+            g.drawImage (grain, getLocalBounds().toFloat(),
+                         juce::RectanglePlacement::stretchToFit);
+            g.setOpacity (1.0f);
+        }
+    }
 }
 
 void SpoolAudioProcessorEditor::resized()
@@ -1301,7 +1608,11 @@ void SpoolAudioProcessorEditor::resized()
     }
 
     // Vertical handheld layout. The aluminium frame consumes kBezel on every side.
-    auto inner = getLocalBounds().reduced (kBezel + 4);
+    // The chassis stays exactly kWindowH tall regardless of editor height — when
+    // the user reveals the MIDI keyboard strip, the editor grows BELOW the
+    // chassis so existing widget positions stay frozen relative to the panel.
+    auto chassis = getLocalBounds().withHeight (kWindowH);
+    auto inner   = chassis.reduced (kBezel + 4);
 
     // Header — SP-L + OLED drawn in paint(). Mirror the OLED rect here so we
     // can position folder/prev/next buttons relative to it.
@@ -1325,9 +1636,10 @@ void SpoolAudioProcessorEditor::resized()
         folderPrevButton.setBounds (oled.getX(),                  navY, navW, navH);
         folderNextButton.setBounds (oled.getX() + navW + 4,       navY, navW, navH);
 
-        // RESET LED — small square (rendered as a red circle by ledPillLnf)
-        // sitting in the empty header space between the SP-L wordmark and
-        // the OLED. Right edge is clamped to stay clear of the OLED.
+        // RESET LED — small red circle (rendered by ledPillLnf) sitting in
+        // the empty header gutter between the SP-L wordmark and the OLED.
+        // (LO-FI lives in its own framed pill directly under the wordmark,
+        //  not in this row — see below.)
         const int resetSz       = 22;
         const int availStart    = wordmarkArea.getRight() + 8;
         const int availEnd      = oled.getX() - 8;
@@ -1336,6 +1648,31 @@ void SpoolAudioProcessorEditor::resized()
         resetParamsButton.setBounds (resetX,
                                      wordmarkArea.getCentreY() - resetSz / 2,
                                      resetSz, resetSz);
+
+        // LO-FI pill — sits directly under the SP-L wordmark, left-aligned
+        // with the wordmark, in the header's spacer area so it gets its own
+        // visual breathing room and reads as a dedicated mode switch.
+        // (Vertical SP-L text leaves ~10 px clearance at the wordmark's
+        // bottom; the spacer below the header is 22 px tall, so a 16 px
+        // pill placed 2 px below the wordmark bottom fits cleanly.)
+        const int lofiW = 60;
+        const int lofiH = 16;
+        const int lofiX = wordmarkArea.getX() + 4;
+        const int lofiY = wordmarkArea.getBottom() + 2;
+        lofiButton.setBounds (lofiX, lofiY, lofiW, lofiH);
+
+        // LO-FI dry/wet knob — only visible when LO-FI is on. Knob-only
+        // mode (no labels), placed DIRECTLY UNDER the LO-FI pill, centred
+        // horizontally on the pill's centre line. Hitbox = visible knob.
+        // Sized larger than the pill (78 wide) so the rotary reads as a
+        // substantial control, not a small adjustment dot. Bottom edge
+        // sits flush with the INPUT knob's empty top-label region so we
+        // don't visibly overlap any other widget.
+        const int lofiKnobSize = 78;
+        const int lofiBtnCx    = lofiX + lofiW / 2;
+        const int lofiKnobX    = lofiBtnCx - lofiKnobSize / 2;
+        const int lofiKnobY    = lofiButton.getBottom() + 4;
+        lofiKnob.setBounds (lofiKnobX, lofiKnobY, lofiKnobSize, lofiKnobSize);
     }
     inner.removeFromTop (78);                    // header: SP-L + OLED (drawn in paint())
     inner.removeFromTop (22);                    // spacer below header (was 4 — now leaves room for nav buttons)
@@ -1349,7 +1686,19 @@ void SpoolAudioProcessorEditor::resized()
         playButton  .setBounds (bigTransport.removeFromLeft (w)); bigTransport.removeFromLeft (gap);
         stopButton  .setBounds (bigTransport);
     }
-    inner.removeFromBottom (8);
+    inner.removeFromBottom (6);
+
+    // ---- KEYS toggle: thin centred pill above the transport row ------------
+    // Always visible regardless of whether the keyboard is shown. Clicking
+    // grows the editor downward by kKeyboardStripH and reveals the keyboard.
+    {
+        auto toggleRow = inner.removeFromBottom (22);
+        const int toggleW = 90;
+        const int toggleX = toggleRow.getCentreX() - toggleW / 2;
+        keyboardToggleButton.setBounds (toggleX, toggleRow.getY(),
+                                        toggleW, toggleRow.getHeight());
+    }
+    inner.removeFromBottom (4);
 
     // ---- Slot row (1..8): above bigTransport ------------------------------
     {
@@ -1555,6 +1904,36 @@ void SpoolAudioProcessorEditor::resized()
     clearSampleButton.setBounds (waveformArea.getRight() - clearSz - 4,
                                  waveformArea.getY()     + 4,
                                  clearSz, clearSz);
+
+    // ---- MIDI keyboard strip: BELOW the chassis when keyboardVisible -------
+    // Pitch bend on the left, mod wheel on the right, ARP/PATTERN buttons at
+    // the top-centre, keyboard fills the rest. Tiny PITCH / MOD captions
+    // sit under each wheel so the slider's role is clear at a glance.
+    if (keyboardVisible)
+    {
+        auto strip = getLocalBounds().withTop (kWindowH).reduced (kBezel, 8);
+        const int wheelW   = 26;
+        const int wheelGap = 8;
+        const int labelH   = 10;
+        auto bendCol = strip.removeFromLeft (wheelW);  strip.removeFromLeft (wheelGap);
+        auto modCol  = strip.removeFromRight (wheelW); strip.removeFromRight (wheelGap);
+        pitchLabel.setBounds (bendCol.removeFromBottom (labelH));
+        modLabel  .setBounds (modCol .removeFromBottom (labelH));
+        pitchBendSlider.setBounds (bendCol);
+        modWheelSlider .setBounds (modCol);
+
+        // ARP / PATTERN row at the top of the centre column.
+        const int arpRowH    = 18;
+        const int arpBtnW    = 48;
+        const int arpBtnGap  = 4;
+        auto arpRow = strip.removeFromTop (arpRowH);
+        arpToggleButton .setBounds (arpRow.getX(), arpRow.getY(), arpBtnW, arpRowH);
+        arpPatternButton.setBounds (arpRow.getX() + arpBtnW + arpBtnGap,
+                                    arpRow.getY(), arpBtnW, arpRowH);
+        strip.removeFromTop (4);
+
+        keyboardComponent.setBounds (strip);
+    }
 }
 
 //==============================================================================
@@ -1688,6 +2067,21 @@ void SpoolAudioProcessorEditor::timerCallback()
 {
     // Live position update + transport button text sync.
     repaint (waveformArea.expanded (2));
+
+    // Animated film grain — only when LO-FI is engaged. Rotate the frame
+    // index slowly (every ~3 timer ticks ≈ 10 Hz) so the grain shimmers
+    // without making the panel feel restless, and trigger a full repaint
+    // so the overlay actually updates.
+    if (processorRef.isLofiMode())
+    {
+        static int grainSubdiv = 0;
+        if (++grainSubdiv >= 3)
+        {
+            grainSubdiv = 0;
+            grainFrameIndex = (grainFrameIndex + 1) % kNumGrainFrames;
+            repaint();
+        }
+    }
 
     const auto playing = processorRef.isPlaying();
 
@@ -1920,6 +2314,10 @@ void SpoolAudioProcessorEditor::dismissWelcomeOverlay()
     prefs.setValue (kWelcomeShownKey, true);
     prefs.saveIfNeeded();
     welcomeOverlay.reset();
+    // Reclaim keyboard focus from the (now-destroyed) overlay so 1-8 slot
+    // keys + spacebar work immediately, without forcing the user to click
+    // somewhere on the panel first.
+    grabKeyboardFocus();
 }
 
 void SpoolAudioProcessorEditor::loadBackgroundImage()
@@ -2032,6 +2430,18 @@ void SpoolAudioProcessorEditor::syncControlsFromProcessor()
 
     // BPM readout — slot may have restored a different tempo.
     bpmControl.repaint();
+
+    // LO-FI master toggle — sync after RESET / state-restore so the framed
+    // pill reflects the actual processor flag (LookAndFeel handles the
+    // glow / dim swap based on the toggle state).
+    lofiButton.setToggleState (processorRef.isLofiMode(), juce::dontSendNotification);
+    lofiButton.repaint();
+    // LO-FI dry/wet knob — pull value + visibility from processor.
+    // Knob-only mode means no value label to update; rotary position alone
+    // shows the wet amount.
+    lofiKnob.getSlider().setValue ((double) processorRef.getLofiMix(),
+                                    juce::dontSendNotification);
+    lofiKnob.setVisible (processorRef.isLofiMode());
 }
 
 void SpoolAudioProcessorEditor::registerTap()
@@ -2079,9 +2489,36 @@ void SpoolAudioProcessorEditor::triggerSlot (int slot, bool allowSave)
     // empty + !allowSave (keyboard) = no-op, never accidentally overwrite.
 }
 
+namespace
+{
+    // Standard MIDI-keyboard layout used by JUCE's MidiKeyboardComponent.
+    // 'a' is the C of the base octave, the rest fill in chromatic up:
+    //   white row: a s d f g h j k l ;
+    //   black row: w e   t y u   o p
+    // 17 keys → just over an octave, enough to play simple riffs without
+    // touching x for an octave shift.
+    struct NoteKeyMap { juce::juce_wchar keyChar; int offsetFromBaseC; };
+    constexpr NoteKeyMap kKeyboardNoteMap[] = {
+        {'a',  0}, {'w',  1}, {'s',  2}, {'e',  3}, {'d',  4}, {'f',  5},
+        {'t',  6}, {'g',  7}, {'y',  8}, {'h',  9}, {'u', 10}, {'j', 11},
+        {'k', 12}, {'o', 13}, {'l', 14}, {'p', 15}, {';', 16}
+    };
+}
+
+void SpoolAudioProcessorEditor::disableChildrenStealingFocus (juce::Component* root)
+{
+    for (auto* c : root->getChildren())
+    {
+        c->setMouseClickGrabsKeyboardFocus (false);
+        disableChildrenStealingFocus (c);
+    }
+}
+
 bool SpoolAudioProcessorEditor::keyPressed (const juce::KeyPress& k)
 {
     const int code = k.getKeyCode();
+    auto      ch   = k.getTextCharacter();
+    if (ch >= 'A' && ch <= 'Z') ch = (juce::juce_wchar) (ch - 'A' + 'a');
 
     // SPACEBAR — toggle play/stop. Universal transport convention.
     if (code == juce::KeyPress::spaceKey)
@@ -2101,7 +2538,67 @@ bool SpoolAudioProcessorEditor::keyPressed (const juce::KeyPress& k)
             return true;
         }
     }
+
+    // z / x → octave shift the on-screen keyboard's base octave. Skipped
+    // unless KEYS is visible (otherwise these are wasted presses).
+    if (keyboardVisible)
+    {
+        if (ch == 'z')
+        {
+            kbBaseOctave = juce::jmax (1, kbBaseOctave - 1);
+            keyboardComponent.setBaseOctave (kbBaseOctave);
+            if (keyboardComponent.onOctaveChange) keyboardComponent.onOctaveChange (kbBaseOctave);
+            return true;
+        }
+        if (ch == 'x')
+        {
+            kbBaseOctave = juce::jmin (9, kbBaseOctave + 1);
+            keyboardComponent.setBaseOctave (kbBaseOctave);
+            if (keyboardComponent.onOctaveChange) keyboardComponent.onOctaveChange (kbBaseOctave);
+            return true;
+        }
+
+        // Letter note keys (a/w/s/e/d/...). Push Note-On into the shared
+        // MidiKeyboardState — the processor merges it with host MIDI.
+        for (const auto& nk : kKeyboardNoteMap)
+        {
+            if (ch == nk.keyChar)
+            {
+                const int note = juce::jlimit (0, 127, kbBaseOctave * 12 + nk.offsetFromBaseC);
+                // Skip if already tracked (auto-repeat keystrokes shouldn't retrigger).
+                bool already = false;
+                for (auto& slot : kbHeldNoteKeys)
+                    if (slot.first == nk.keyChar && slot.second == note) { already = true; break; }
+                if (! already)
+                {
+                    for (auto& slot : kbHeldNoteKeys)
+                        if (slot.second < 0) { slot.first = nk.keyChar; slot.second = note; break; }
+                    processorRef.getKeyboardState().noteOn (1, note, 0.9f);
+                }
+                return true;
+            }
+        }
+    }
     return false;
+}
+
+bool SpoolAudioProcessorEditor::keyStateChanged (bool /*isKeyDown*/)
+{
+    // Poll our tracked note keys and release any whose key isn't held
+    // anymore. JUCE only fires keyPressed on press; releases come through
+    // here as a bulk "something changed" callback.
+    bool changed = false;
+    for (auto& slot : kbHeldNoteKeys)
+    {
+        if (slot.second >= 0 && ! juce::KeyPress::isKeyCurrentlyDown (slot.first))
+        {
+            processorRef.getKeyboardState().noteOff (1, slot.second, 0.0f);
+            slot.first  = 0;
+            slot.second = -1;
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 void SpoolAudioProcessorEditor::handleKnobReorder (int knobEffectIdx, int dropX)
@@ -2196,6 +2693,16 @@ void SpoolAudioProcessorEditor::applyRandomTheme()
     for (auto& b : loopSizeButtons) retintBtn (b, kPanelDark, kAccent);
     // Slot buttons (1..8) — onColour drives the "filled" highlight.
     for (auto& sb : slotButtons)    retintBtn (sb, kPanelDark, kAccent);
+    // Keyboard strip widgets — keys, ARP/PATTERN buttons, KEYS toggle,
+    // pitch/mod sliders — all carry the accent.
+    keyboardComponent.setAccent (kAccent);
+    retintBtn (arpToggleButton,      kPanelDark, kAccent);
+    retintBtn (arpPatternButton,     kPanelDark, kAccent);
+    retintBtn (keyboardToggleButton, kPanelDark, kAccent);
+    pitchBendSlider.setColour (juce::Slider::trackColourId, kAccent);
+    pitchBendSlider.setColour (juce::Slider::thumbColourId, kAccent.brighter (0.2f));
+    modWheelSlider .setColour (juce::Slider::trackColourId, kAccent);
+    modWheelSlider .setColour (juce::Slider::thumbColourId, kAccent.brighter (0.2f));
 
     juce::Logger::writeToLog (juce::String::formatted (
         "theme: H=%.2f → accent=%08X", h, (uint32_t) kAccent.getARGB()));
@@ -2252,4 +2759,180 @@ juce::String SpoolAudioProcessorEditor::formatTime (double seconds)
     const int m = total / 60;
     const int s = total % 60;
     return juce::String::formatted ("%d:%02d", m, s);
+}
+
+//==============================================================================
+// SP-L-themed keyboard component — brushed aluminium white keys, dark panel
+// black keys, accent overlay on hover/press, C-octave labels in the OLED
+// orange so the player can find their bearings at a glance.
+void SpoolAudioProcessorEditor::SpoolKeyboardComponent::drawWhiteNote (
+    int midiNoteNumber, juce::Graphics& g, juce::Rectangle<float> area,
+    bool isDown, bool isOver,
+    juce::Colour /*lineColour*/, juce::Colour /*textColour*/)
+{
+    // 1) Brushed aluminium body — same palette as the chassis above.
+    juce::ColourGradient grad (
+        kAlumLight, area.getX(),      area.getY(),
+        kAlumDark,  area.getX(),      area.getBottom(), false);
+    grad.addColour (0.65, kAlumMid);
+    g.setGradientFill (grad);
+    g.fillRect (area);
+
+    // 2) Hover / press accent overlay.
+    if (isDown)
+    {
+        g.setColour (accent.withAlpha (0.55f));
+        g.fillRect (area);
+    }
+    else if (isOver)
+    {
+        g.setColour (accent.withAlpha (0.18f));
+        g.fillRect (area);
+    }
+
+    // 3) Right-edge key separator — thin dark seam.
+    g.setColour (juce::Colour::fromRGB (0x4a, 0x4a, 0x50).withAlpha (0.85f));
+    g.drawLine (area.getRight() - 0.5f, area.getY(),
+                area.getRight() - 0.5f, area.getBottom(), 1.0f);
+
+    // 4) Bottom accent ledge when pressed — reads like an LED catching light.
+    if (isDown)
+    {
+        g.setColour (accent.brighter (0.2f));
+        g.fillRect (area.getX(), area.getBottom() - 2.5f, area.getWidth(), 2.5f);
+    }
+
+    // 5) Octave-C label in OLED orange so the player can navigate.
+    if (midiNoteNumber % 12 == 0)
+    {
+        auto label = juce::String ("C") + juce::String (midiNoteNumber / 12 - 1);
+        g.setColour (juce::Colour::fromRGB (0xff, 0xa6, 0x4a).withAlpha (0.80f));
+        g.setFont   (juce::Font (juce::FontOptions { 8.5f, juce::Font::bold }));
+        g.drawText  (label,
+                     area.withTrimmedTop (area.getHeight() * 0.78f).reduced (1.0f, 0.0f),
+                     juce::Justification::centred, false);
+    }
+}
+
+void SpoolAudioProcessorEditor::SpoolKeyboardComponent::setBaseOctave (int oct) noexcept
+{
+    baseOctave = juce::jlimit (1, 9, oct);
+    setKeyPressBaseOctave (baseOctave);
+}
+
+bool SpoolAudioProcessorEditor::SpoolKeyboardComponent::keyPressed (const juce::KeyPress& k)
+{
+    // Use lower-cased text char so shift-z / capslock still toggle octaves.
+    auto ch = k.getTextCharacter();
+    if (ch >= 'A' && ch <= 'Z') ch = (juce::juce_wchar) (ch - 'A' + 'a');
+
+    if (ch == 'z')
+    {
+        const int newOct = juce::jmax (1, baseOctave - 1);
+        if (newOct != baseOctave)
+        {
+            setBaseOctave (newOct);
+            if (onOctaveChange) onOctaveChange (newOct);
+        }
+        return true;
+    }
+    if (ch == 'x')
+    {
+        const int newOct = juce::jmin (9, baseOctave + 1);
+        if (newOct != baseOctave)
+        {
+            setBaseOctave (newOct);
+            if (onOctaveChange) onOctaveChange (newOct);
+        }
+        return true;
+    }
+    // Anything else: defer to MidiKeyboardComponent's standard mapping (a, w,
+    // s, e, d, f, t, g, y, h, u, j, k, o, l, ...). Unmapped keys return
+    // false so JUCE bubbles them up to the editor (1-8 slots, space PLAY).
+    return juce::MidiKeyboardComponent::keyPressed (k);
+}
+
+void SpoolAudioProcessorEditor::SpoolKeyboardComponent::drawBlackNote (
+    int /*midiNoteNumber*/, juce::Graphics& g, juce::Rectangle<float> area,
+    bool isDown, bool isOver, juce::Colour /*noteFillColour*/)
+{
+    // 1) Dark panel body with a subtle top-light gradient.
+    juce::ColourGradient grad (
+        juce::Colour::fromRGB (0x36, 0x36, 0x3c), area.getX(), area.getY(),
+        juce::Colour::fromRGB (0x10, 0x10, 0x14), area.getX(), area.getBottom(), false);
+    g.setGradientFill (grad);
+    g.fillRect (area);
+
+    // 2) Hover / press accent overlay.
+    if (isDown)
+    {
+        g.setColour (accent.withAlpha (0.70f));
+        g.fillRect (area);
+    }
+    else if (isOver)
+    {
+        g.setColour (accent.withAlpha (0.30f));
+        g.fillRect (area);
+    }
+
+    // 3) Specular highlight along the top edge for a 3D feel.
+    g.setColour (juce::Colours::white.withAlpha (0.16f));
+    g.fillRect (area.getX(), area.getY(), area.getWidth(), 1.5f);
+
+    // 4) Sharp bottom edge.
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.fillRect (area.getX(), area.getBottom() - 1.0f, area.getWidth(), 1.0f);
+
+    // 5) Accent ledge when pressed.
+    if (isDown)
+    {
+        g.setColour (accent.brighter (0.15f));
+        g.fillRect (area.getX(), area.getBottom() - 2.5f, area.getWidth(), 2.5f);
+    }
+}
+
+void SpoolAudioProcessorEditor::setKeyboardVisible (bool shouldBeVisible)
+{
+    if (keyboardVisible == shouldBeVisible) return;
+    keyboardVisible = shouldBeVisible;
+    keyboardComponent.setVisible (shouldBeVisible);
+    pitchBendSlider.setVisible   (shouldBeVisible);
+    modWheelSlider.setVisible    (shouldBeVisible);
+    arpToggleButton.setVisible   (shouldBeVisible);
+    arpPatternButton.setVisible  (shouldBeVisible);
+    pitchLabel.setVisible        (shouldBeVisible);
+    modLabel.setVisible          (shouldBeVisible);
+    keyboardToggleButton.setToggleState (shouldBeVisible, juce::dontSendNotification);
+
+    // Grow / shrink the editor so the keyboard appears below the chassis
+    // without disturbing any of the existing layout.
+    setSize (kWindowW, kWindowH + (shouldBeVisible ? kKeyboardStripH : 0));
+
+    // The editor itself handles ALL computer-keyboard input (letter notes,
+    // z/x octave, 1-8 slots, space), so we keep focus on the editor and
+    // never hand it to the keyboardComponent. This lets the user click any
+    // knob/button/slot and still type to play notes without re-clicking.
+    grabKeyboardFocus();
+
+    if (! shouldBeVisible)
+    {
+        // Release any sustained notes (mouse or letter-key) before hiding
+        // so we don't strand voices.
+        processorRef.getKeyboardState().allNotesOff (1);
+        for (auto& slot : kbHeldNoteKeys) { slot.first = 0; slot.second = -1; }
+    }
+}
+
+void SpoolAudioProcessorEditor::sendPitchBendMidi (int bendValue14bit)
+{
+    auto msg = juce::MidiMessage::pitchWheel (1, juce::jlimit (0, 16383, bendValue14bit));
+    msg.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
+    processorRef.getMidiCollector().addMessageToQueue (msg);
+}
+
+void SpoolAudioProcessorEditor::sendModWheelMidi (int ccValue7bit)
+{
+    auto msg = juce::MidiMessage::controllerEvent (1, 1, juce::jlimit (0, 127, ccValue7bit));
+    msg.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
+    processorRef.getMidiCollector().addMessageToQueue (msg);
 }

@@ -14,8 +14,12 @@ A handheld-feel sampler / looper / field recorder inspired by the Teenage Engine
 - **Live field recorder** — REC captures from the default audio input; auto-loops on stop (RC-505 style).
 - **Loop region** — drag across the waveform to set a custom loop; or pick a tempo-relative size (1/16 · 1/8 · 1/4 · 1/2 · 1B · 2B) that follows BPM.
 - **Eight loop slots** — left-click to save, right-click to clear, or press `1`-`8` (number row or keypad) to recall.
-- **Tempo-synced effects** — GHOST delay, FILTER LFO, and the loop-size grid all follow the internal BPM you set.
+- **Tempo-synced effects** — GHOST delay, FILTER LFO, ARP rate, and the loop-size grid all follow the internal BPM you set.
 - **Three big "JUICE" effect knobs** — drag the icons to reorder the signal chain.
+- **MIDI sampler** — play the loaded sample chromatically. 8-voice polyphony, C4 = root, works with any MIDI controller AND the on-screen keyboard.
+- **On-screen keyboard** — toggle the **♪ KEYS** pill to reveal a 2-octave keyboard with pitch wheel + mod wheel + ARP. Or just type `a w s e d f t g y h u j k …` to play notes; `z` / `x` shift octaves.
+- **Arpeggiator** — engage **ARP** on the keyboard; held notes cycle in UP / DN / UPDN / RND patterns at a tempo-synced rate (mod wheel selects 1/4 → 1/32).
+- **LO-FI master mode** — one-button "cassette" character: warm tanh saturation + bit-crush + HF rolloff, dialled with a dry/wet knob under the button. The whole chassis re-skins pink-purple with animated film grain when engaged.
 - **DJ scratching** — grab the spinning vinyl and drag to scrub with a soft cartridge LP for authentic feel.
 - **Theme randomizer** — double-click the SP-L wordmark for a fresh accent color.
 
@@ -73,6 +77,40 @@ A handheld-feel sampler / looper / field recorder inspired by the Teenage Engine
 | **Click slot 1–8** | Save current loop region (with all effect state) or load if filled. |
 | **Right-click slot** | Clear. |
 | **Number keys 1–8** | Load only (won't accidentally overwrite). |
+
+### MIDI sampler
+| Control | Action |
+|---|---|
+| **MIDI Note-On** | Plays the loaded sample at a pitch-shifted rate (C4 = note 60 = root). |
+| **Polyphony** | 8 voices, oldest-voice steal. |
+| **Co-exists with PLAY** | Perform live MIDI on top of a running PLAY-button loop. |
+
+### On-screen keyboard
+Toggle the **♪ KEYS** pill above the transport row to show / hide the bottom keyboard strip.
+
+| Control | Action |
+|---|---|
+| **Click the keys** | Play notes via mouse. |
+| **PITCH wheel** (left of keyboard) | ±12 semitones. Snaps back to centre on release. |
+| **MOD wheel** (right of keyboard) | When ARP off → tremolo depth (5 Hz). When ARP on → arp rate selector (1/4 · 1/8 · 1/16 · 1/32 in four zones). |
+| **`a w s e d f t g y h u j k o l`** | Computer-keyboard note input. `a` = base C (default C4). |
+| **`z`** | Octave down. |
+| **`x`** | Octave up. |
+
+### Arpeggiator
+On the keyboard strip:
+
+| Control | Action |
+|---|---|
+| **ARP** pill | Toggle arp engine. Held notes cycle at BPM-synced rate. |
+| **PATTERN** pill | Cycle UP / DN / UPDN / RND. |
+| **MOD wheel** | Selects rate while ARP is on. |
+
+### LO-FI master mode
+| Control | Action |
+|---|---|
+| **LO-FI** pill (under SP-L) | Engage warm tanh saturation + 5-bit crush + 7 kHz HF rolloff on the final mix. Chassis re-skins pink/purple with animated film grain. |
+| **LO-FI knob** (under the pill) | Dry/wet. Default 80% → 40% wet. Max 100% → 50% wet. Double-click → 80%. |
 
 ### Folder browse (corner of OLED)
 - `◫` pick a folder; `−` / `+` step through audio files in it.

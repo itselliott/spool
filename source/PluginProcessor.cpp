@@ -83,6 +83,34 @@ const char* SpoolAudioProcessor::getHazePresetLabel (int p) noexcept
     return kLabels[juce::jlimit (0, kNumHazePresets - 1, p)];
 }
 
+const char* SpoolAudioProcessor::getArpModeLabel (int m) noexcept
+{
+    static const char* kLabels[] = { "UP", "DN", "UPDN", "RND" };
+    return kLabels[juce::jlimit (0, kNumArpModes - 1, m)];
+}
+
+const char* SpoolAudioProcessor::getArpRateLabel (int r) noexcept
+{
+    static const char* kLabels[] = { "1/4", "1/8", "1/16", "1/32" };
+    return kLabels[juce::jlimit (0, kNumArpRates - 1, r)];
+}
+
+namespace
+{
+    // Beat fraction per arp step (1.0 = one beat = quarter note).
+    constexpr double kArpRateFractions[SpoolAudioProcessor::kNumArpRates] =
+        { 1.0, 0.5, 0.25, 0.125 };
+
+    // Map a 0..1 mod-wheel value to a discrete arp rate index.
+    inline int modWheelToArpRate (float w) noexcept
+    {
+        if (w < 0.25f) return SpoolAudioProcessor::ArpRate14;
+        if (w < 0.50f) return SpoolAudioProcessor::ArpRate18;
+        if (w < 0.75f) return SpoolAudioProcessor::ArpRate116;
+        return                SpoolAudioProcessor::ArpRate132;
+    }
+}
+
 namespace
 {
     // Per-compressor-voice parameters. All three run at 12:1, but their attack,
@@ -202,7 +230,10 @@ void SpoolAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         srrHold      [ch] = 0.0f;
         ghostFbLp    [ch] = 0.0f;
         scratchLpState[ch] = 0.0f;
+        lofiSrrHold  [ch] = 0.0f;
+        lofiLpState  [ch] = 0.0f;
     }
+    lofiSrrCounter = 0;
     scratchRateSmoothed = 0.0;
 
     // Up to ~600 ms of delay covers 1/4 at 100 BPM.
@@ -219,6 +250,10 @@ void SpoolAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     tapeLfoPhase = 0.0f;
 
     playGainSmoothed = playing.load() ? 1.0f : 0.0f;
+
+    // Reset MIDI collector — editor sliders (pitch bend / mod wheel) pump
+    // messages into it; we drain it at the top of processBlock.
+    midiCollector.reset (sampleRate);
 
     hazeReverb.setSampleRate (sampleRate);
 
@@ -262,7 +297,7 @@ bool SpoolAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
 }
 
 void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
-                                        juce::MidiBuffer& /*midi*/)
+                                        juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -272,6 +307,233 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // Surface channel count to UI for diagnostics ("NO INPUT DEVICE" warning).
     inputChannelCount.store (numInChannels);
+
+    // ---- Snapshot recording window for this block --------------------------
+    // Input capture (further down) AND MIDI voice rendering (further down
+    // still) both need to write into the SAME slice of recordBuffer so the
+    // mix lands together. Capture the start position once here and advance
+    // recordPos uniformly at the very end of the block. Without this snapshot
+    // MIDI-triggered playback never made it into the recording — REC stored
+    // the dry input only and the MIDI voices were summed in AFTER capture.
+    const bool recordingNow = recording.load();
+    const int  recCap       = recordBuffer.getNumSamples();
+    const int  recStartPos  = recordingNow ? recordPos.load() : -1;
+    const int  recBlockLen  = (recordingNow && recStartPos >= 0 && recStartPos < recCap)
+                                ? juce::jmin (numSamples, recCap - recStartPos) : 0;
+    if (recordingNow && recBlockLen > 0)
+    {
+        // Pre-clear the slice — input copyFrom further down overwrites, but
+        // when there's no input device (numInChannels == 0) we still want
+        // MIDI addSample writes to land on silence, not on stale buffer data.
+        for (int ch = 0; ch < recordBuffer.getNumChannels(); ++ch)
+            recordBuffer.clear (ch, recStartPos, recBlockLen);
+    }
+
+    // ---- Merge editor MIDI sources --------------------------------------
+    // Pitch-bend / mod-wheel slider updates from the editor flow through the
+    // MidiMessageCollector; on-screen keyboard taps flow through the shared
+    // MidiKeyboardState. Both get spliced into the host MIDI buffer here so
+    // the voice-parse loop below treats them identically to host MIDI.
+    midiCollector.removeNextBlockOfMessages (midi, numSamples);
+    keyboardState.processNextMidiBuffer (midi, 0, numSamples, true);
+
+    // ---- MIDI: allocate / release sampler voices ---------------------------
+    // Note-On finds a free slot (or steals the oldest) and starts playback at
+    // a rate pitch-shifted from the root note (C4). Note-Off triggers the
+    // voice's release stage. The actual audio synthesis happens further down,
+    // after the transport sample-read so MIDI voices mix on top of (or in
+    // place of) the PLAY-button-driven playback.
+    for (const auto meta : midi)
+    {
+        const auto& m = meta.getMessage();
+        if (m.isPitchWheel())
+        {
+            // 14-bit value (0..16383), centred at 8192. Map to ±12 semitones
+            // (one octave) — wide enough to actually hear the bend on the
+            // SP sampler's pitched playback. (A standard ±2-semi wheel is
+            // barely audible at slow playback rates.)
+            const float bendNorm = ((float) m.getPitchWheelValue() - 8192.0f) / 8192.0f;
+            midiPitchBendSemis.store (juce::jlimit (-12.0f, 12.0f, bendNorm * 12.0f));
+            continue;
+        }
+        if (m.isController() && m.getControllerNumber() == 1)
+        {
+            midiModWheel.store (juce::jlimit (0.0f, 1.0f,
+                                              (float) m.getControllerValue() / 127.0f));
+            continue;
+        }
+        if (m.isNoteOn())
+        {
+            const int   note = m.getNoteNumber();
+            const float vel  = (float) m.getVelocity() / 127.0f;
+
+            // ARP MODE: collect the note into the held-notes list (sorted
+            // ascending) and let the arp tick further down trigger voices.
+            if (arpEnabled.load())
+            {
+                bool already = false;
+                for (int i = 0; i < numHeldNotes; ++i)
+                    if (heldNotes[i] == note) { already = true; break; }
+                if (! already && numHeldNotes < kMaxHeldNotes)
+                {
+                    int i = 0;
+                    while (i < numHeldNotes && heldNotes[i] < note) ++i;
+                    for (int j = numHeldNotes; j > i; --j) heldNotes[j] = heldNotes[j - 1];
+                    heldNotes[i] = note;
+                    ++numHeldNotes;
+                    // First note of a new chord — fire it immediately so the
+                    // user hears something the instant they touch a key,
+                    // rather than waiting up to a step interval.
+                    if (numHeldNotes == 1)
+                    {
+                        arpSamplesUntilStep = 0.0;
+                        arpStepIndex        = 0;
+                        arpDirection        = 1;
+                    }
+                }
+                // Stash the velocity from the most recent press so the next
+                // arp step uses it. Held notes themselves only carry pitch.
+                arpRng.setSeedRandomly();
+                continue;
+            }
+
+            const double rate = std::pow (2.0, (note - kMidiRootNote) / 12.0);
+
+            // Re-trigger an existing voice on the same note, otherwise grab a
+            // free slot, otherwise steal the oldest non-attacking voice.
+            SamplerVoice* target = nullptr;
+            for (auto& v : midiVoices)
+                if (v.midiNote == note) { target = &v; break; }
+            if (target == nullptr)
+                for (auto& v : midiVoices)
+                    if (v.stage == VoiceStage::Off) { target = &v; break; }
+            if (target == nullptr)
+            {
+                uint64_t oldest = UINT64_MAX;
+                for (auto& v : midiVoices)
+                    if (v.ageCounter < oldest) { oldest = v.ageCounter; target = &v; }
+            }
+            target->midiNote   = note;
+            target->velocity   = vel;
+            target->pos        = 0.0;          // start of sample / loop region
+            target->rate       = rate;
+            target->env        = 0.0f;
+            target->stage      = VoiceStage::Attack;
+            target->ageCounter = ++midiVoiceAge;
+        }
+        else if (m.isNoteOff())
+        {
+            const int note = m.getNoteNumber();
+
+            // ARP MODE: remove from held-notes list. If the chord is now
+            // empty release any currently sounding arp voice.
+            if (arpEnabled.load())
+            {
+                for (int i = 0; i < numHeldNotes; ++i)
+                    if (heldNotes[i] == note)
+                    {
+                        for (int j = i; j < numHeldNotes - 1; ++j) heldNotes[j] = heldNotes[j + 1];
+                        --numHeldNotes;
+                        break;
+                    }
+                if (numHeldNotes == 0)
+                {
+                    for (auto& v : midiVoices)
+                        if (v.stage != VoiceStage::Off && v.stage != VoiceStage::Release)
+                            v.stage = VoiceStage::Release;
+                    arpCurrentNote = -1;
+                }
+                continue;
+            }
+
+            for (auto& v : midiVoices)
+                if (v.midiNote == note && v.stage != VoiceStage::Off
+                                       && v.stage != VoiceStage::Release)
+                    v.stage = VoiceStage::Release;
+        }
+        else if (m.isAllNotesOff() || m.isAllSoundOff())
+        {
+            for (auto& v : midiVoices) v.stage = VoiceStage::Release;
+            numHeldNotes   = 0;
+            arpCurrentNote = -1;
+        }
+    }
+
+    // ---- Arpeggiator tick --------------------------------------------------
+    // Advance the per-block sample counter; when it reaches zero, release the
+    // current arp voice and trigger the next note in the configured pattern.
+    // Stepping happens on block boundaries — sub-block precision isn't worth
+    // the complexity for a sampler arp; even 1/32 at 240 BPM = ~125ms per
+    // step which dwarfs typical block sizes (1-10 ms).
+    if (arpEnabled.load() && numHeldNotes > 0)
+    {
+        // Mod wheel selects the rate when ARP is on (0..1 → 1/4..1/32).
+        const int    effectiveRate = modWheelToArpRate (midiModWheel.load());
+        const double samplesPerBeat = hostSampleRate * 60.0 / juce::jmax (1.0, internalBpm.load());
+        const double samplesPerStep = juce::jmax (32.0,
+            samplesPerBeat * kArpRateFractions[effectiveRate]);
+
+        arpSamplesUntilStep -= (double) numSamples;
+        if (arpSamplesUntilStep <= 0.0)
+        {
+            // Pick the next note based on the configured pattern.
+            int next = 0;
+            switch (arpMode.load())
+            {
+                case ArpDown:
+                    arpStepIndex = (arpStepIndex - 1 + numHeldNotes * 8) % numHeldNotes;
+                    next = heldNotes[numHeldNotes - 1 - arpStepIndex];
+                    ++arpStepIndex;
+                    break;
+
+                case ArpUpDown:
+                    if (numHeldNotes == 1) { next = heldNotes[0]; break; }
+                    next = heldNotes[juce::jlimit (0, numHeldNotes - 1, arpStepIndex)];
+                    arpStepIndex += arpDirection;
+                    if (arpStepIndex >= numHeldNotes - 1) { arpStepIndex = numHeldNotes - 1; arpDirection = -1; }
+                    else if (arpStepIndex <= 0)          { arpStepIndex = 0;                 arpDirection =  1; }
+                    break;
+
+                case ArpRandom:
+                    next = heldNotes[arpRng.nextInt (numHeldNotes)];
+                    break;
+
+                case ArpUp:
+                default:
+                    next = heldNotes[arpStepIndex % numHeldNotes];
+                    ++arpStepIndex;
+                    if (arpStepIndex >= numHeldNotes) arpStepIndex = 0;
+                    break;
+            }
+
+            // Release the previous arp voice (if any) and allocate a fresh
+            // one for the new note. Always steal slot 0 so the arp has a
+            // dedicated voice that doesn't fight the rest of the polyphony.
+            for (auto& v : midiVoices)
+                if (v.stage != VoiceStage::Off && v.stage != VoiceStage::Release)
+                    v.stage = VoiceStage::Release;
+
+            auto& slot = midiVoices[0];
+            slot.midiNote   = next;
+            slot.velocity   = 0.9f;
+            slot.pos        = 0.0;
+            slot.rate       = std::pow (2.0, (next - kMidiRootNote) / 12.0);
+            slot.env        = 0.0f;
+            slot.stage      = VoiceStage::Attack;
+            slot.ageCounter = ++midiVoiceAge;
+            arpCurrentNote  = next;
+
+            arpSamplesUntilStep += samplesPerStep;
+            if (arpSamplesUntilStep < 0.0) arpSamplesUntilStep = samplesPerStep;
+        }
+    }
+    else if (! arpEnabled.load() && numHeldNotes > 0)
+    {
+        // Arp was turned off mid-chord — drop the captured held notes so a
+        // subsequent re-enable starts fresh.
+        numHeldNotes   = 0;
+        arpCurrentNote = -1;
+    }
 
     // ---- INPUT preamp: wet/dry mix of [compress -> makeup -> tanh -> LP -> HP]
     // The knob is the wet/dry fader. At 0.0 the buffer is unchanged (dry recording).
@@ -378,71 +640,63 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // ---- Capture input BEFORE we touch the buffer -----------------------
-    if (recording.load())
+    // ---- Capture input into the snapshot slice --------------------------
+    // recordPos is advanced ONCE at the end of the block so the MIDI voice
+    // renderer (further down) can write into the same slice. Auto-stop is
+    // also deferred to that end-of-block step.
+    if (recordingNow && recBlockLen > 0 && numInChannels > 0)
     {
-        const int cap = recordBuffer.getNumSamples();
-        int pos = recordPos.load();
-        if (pos < cap && numInChannels > 0)
+        const int toCopy  = recBlockLen;
+        const int chCount = juce::jmin (numInChannels, recordBuffer.getNumChannels());
+        for (int ch = 0; ch < chCount; ++ch)
+            recordBuffer.copyFrom (ch, recStartPos, buffer, ch, 0, toCopy);
+        // If input is mono, duplicate to right channel for a usable stereo recording.
+        if (chCount == 1 && recordBuffer.getNumChannels() >= 2)
+            recordBuffer.copyFrom (1, recStartPos, buffer, 0, 0, toCopy);
+
+        // OVERDUB: layer the currently-playing audio on top of the input.
+        // Only does anything if a sample is loaded and playback is happening.
+        if (overdubEnabled.load() && playing.load())
         {
-            const int toCopy = juce::jmin (numSamples, cap - pos);
-            const int chCount = juce::jmin (numInChannels, recordBuffer.getNumChannels());
-            for (int ch = 0; ch < chCount; ++ch)
-                recordBuffer.copyFrom (ch, pos, buffer, ch, 0, toCopy);
-            // If input is mono, duplicate to right channel for a usable stereo recording.
-            if (chCount == 1 && recordBuffer.getNumChannels() >= 2)
-                recordBuffer.copyFrom (1, pos, buffer, 0, 0, toCopy);
-
-            // OVERDUB: layer the currently-playing audio on top of the input.
-            // Only does anything if a sample is loaded and playback is happening.
-            if (overdubEnabled.load() && playing.load())
+            Sample::Ptr odSrc;
             {
-                Sample::Ptr odSrc;
-                {
-                    const juce::SpinLock::ScopedTryLockType tryLock (sampleLock);
-                    if (tryLock.isLocked())
-                        odSrc = currentSample;
-                }
-                if (odSrc != nullptr
-                    && odSrc->buffer.getNumSamples()  > 0
-                    && odSrc->buffer.getNumChannels() > 0)
-                {
-                    const double odPitch = (odSrc->sourceSampleRate > 0.0)
-                                               ? (odSrc->sourceSampleRate / hostSampleRate)
-                                               : 1.0;
-                    const double odRate = odPitch * (double) playbackSpeed.load();
-                    const int odMax    = odSrc->buffer.getNumSamples();
-                    const int odChCnt  = odSrc->buffer.getNumChannels();
-                    double odPos = playPosition.load();
-                    // Same NaN/Inf guard the main playback loop uses — overdub
-                    // runs BEFORE that block's guard, so we have to apply it here.
-                    if (! std::isfinite (odPos) || std::abs (odPos) > 1e9)
-                        odPos = 0.0;
+                const juce::SpinLock::ScopedTryLockType tryLock (sampleLock);
+                if (tryLock.isLocked())
+                    odSrc = currentSample;
+            }
+            if (odSrc != nullptr
+                && odSrc->buffer.getNumSamples()  > 0
+                && odSrc->buffer.getNumChannels() > 0)
+            {
+                const double odPitch = (odSrc->sourceSampleRate > 0.0)
+                                           ? (odSrc->sourceSampleRate / hostSampleRate)
+                                           : 1.0;
+                const double odRate = odPitch * (double) playbackSpeed.load();
+                const int odMax    = odSrc->buffer.getNumSamples();
+                const int odChCnt  = odSrc->buffer.getNumChannels();
+                double odPos = playPosition.load();
+                // Same NaN/Inf guard the main playback loop uses — overdub
+                // runs BEFORE that block's guard, so we have to apply it here.
+                if (! std::isfinite (odPos) || std::abs (odPos) > 1e9)
+                    odPos = 0.0;
 
-                    for (int i = 0; i < toCopy; ++i)
+                for (int i = 0; i < toCopy; ++i)
+                {
+                    // Wrap both directions (reverse playback / scratching
+                    // can push odPos negative).
+                    if (odPos >= (double) odMax) odPos = std::fmod (odPos, (double) odMax);
+                    if (odPos < 0.0)             odPos += (double) odMax * std::ceil (-odPos / (double) odMax);
+                    if (odPos < 0.0 || odPos >= (double) odMax) odPos = 0.0;  // belt-and-braces
+                    const int idx = juce::jlimit (0, odMax - 1, (int) odPos);
+                    for (int ch = 0; ch < recordBuffer.getNumChannels(); ++ch)
                     {
-                        // Wrap both directions (reverse playback / scratching
-                        // can push odPos negative).
-                        if (odPos >= (double) odMax) odPos = std::fmod (odPos, (double) odMax);
-                        if (odPos < 0.0)             odPos += (double) odMax * std::ceil (-odPos / (double) odMax);
-                        if (odPos < 0.0 || odPos >= (double) odMax) odPos = 0.0;  // belt-and-braces
-                        const int idx = juce::jlimit (0, odMax - 1, (int) odPos);
-                        for (int ch = 0; ch < recordBuffer.getNumChannels(); ++ch)
-                        {
-                            const int srcCh = ch % odChCnt;
-                            recordBuffer.addSample (ch, pos + i,
-                                                    odSrc->buffer.getSample (srcCh, idx));
-                        }
-                        odPos += odRate;
+                        const int srcCh = ch % odChCnt;
+                        recordBuffer.addSample (ch, recStartPos + i,
+                                                odSrc->buffer.getSample (srcCh, idx));
                     }
+                    odPos += odRate;
                 }
             }
-
-            pos += toCopy;
-            recordPos.store (pos);
-
-            if (pos >= cap)
-                recording.store (false); // auto-stop at capacity
         }
     }
 
@@ -741,6 +995,135 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     playPosition.store (pos);
     }   // end if (samplePlaying) — sample-read block
+
+    // ---- MIDI sampler voices: sum each active voice on top of whatever
+    // the transport produced. Reads the same loaded sample at a per-voice
+    // pitch-shifted rate, then feeds the full effect chain below. Coexists
+    // with PLAY-button transport — perform live MIDI over a running loop.
+    bool anyVoiceActive = false;
+    for (const auto& v : midiVoices) if (v.stage != VoiceStage::Off) { anyVoiceActive = true; break; }
+
+    if (anyVoiceActive && haveSample && numOutChannels > 0)
+    {
+        const auto& src         = local->buffer;
+        const int   srcSamples  = src.getNumSamples();
+        const int   srcChannels = src.getNumChannels();
+        const double srcSr      = local->sourceSampleRate > 0.0 ? local->sourceSampleRate : hostSampleRate;
+        const double pitchRatio = (hostSampleRate > 0.0) ? (srcSr / hostSampleRate) : 1.0;
+        const float  envAttackInc  = 1.0f / juce::jmax (1.0f, 0.005f * (float) hostSampleRate);   // ~5ms
+        const float  envReleaseDec = 1.0f / juce::jmax (1.0f, 0.080f * (float) hostSampleRate);   // ~80ms
+
+        // Pitch bend: convert ±2 semitones to a multiplicative rate factor
+        // applied to every active voice. 0 semis = 1.0×, no audible cost.
+        const double bendFactor = std::pow (2.0, midiPitchBendSemis.load() / 12.0);
+
+        // Mod wheel → ~5 Hz tremolo on the voice amplitude. When ARP is on
+        // the mod wheel is repurposed as the arp rate selector, so disable
+        // tremolo in that mode to keep the two roles cleanly separated.
+        const float  modAmount    = arpEnabled.load() ? 0.0f : midiModWheel.load();
+        const double tremRateHz   = 5.0;
+        const double tremPhaseInc = juce::MathConstants<double>::twoPi
+                                      * tremRateHz / juce::jmax (1.0, hostSampleRate);
+
+        // Loop region for MIDI voices — respect drag-highlight or knob loop
+        // if set, otherwise one-shot through the whole sample.
+        double loopStart = 0.0, loopEnd = (double) srcSamples;
+        if (hasCustomLoop())
+        {
+            loopStart = customLoopStart.load();
+            loopEnd   = customLoopEnd.load();
+        }
+        else if (loopLengthMode.load() > 0 && loopAnchorBase >= 0.0)
+        {
+            const double samplesPerBeat = srcSr * 60.0 / internalBpm.load();
+            const double windowSamps    = samplesPerBeat * kLoopFractionOfBeat[loopLengthMode.load()];
+            loopStart = juce::jlimit (0.0, (double) srcSamples, loopAnchorBase);
+            loopEnd   = juce::jlimit (loopStart + 1.0, (double) srcSamples, loopStart + windowSamps);
+        }
+        const bool   midiLooping = (loopEnd - loopStart) < (double) srcSamples;
+        const double loopLen     = loopEnd - loopStart;
+
+        const int chCount = juce::jmin (numOutChannels, kMaxFilterChannels);
+
+        for (auto& v : midiVoices)
+        {
+            if (v.stage == VoiceStage::Off) continue;
+            // Start voices at loop region start (or sample start if no loop).
+            if (v.pos < loopStart) v.pos = loopStart;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                // Envelope update
+                if      (v.stage == VoiceStage::Attack)
+                {
+                    v.env = juce::jmin (1.0f, v.env + envAttackInc);
+                    if (v.env >= 1.0f) v.stage = VoiceStage::Sustain;
+                }
+                else if (v.stage == VoiceStage::Release)
+                {
+                    v.env -= envReleaseDec;
+                    if (v.env <= 0.0f) { v.env = 0.0f; v.stage = VoiceStage::Off; break; }
+                }
+
+                // Wrap / end-of-sample handling
+                if (v.pos >= loopEnd)
+                {
+                    if (midiLooping)
+                        v.pos = loopStart + std::fmod (v.pos - loopStart, loopLen);
+                    else
+                    {
+                        // One-shot ended — let envelope release out.
+                        v.stage = VoiceStage::Off;
+                        break;
+                    }
+                }
+
+                const int    i0 = (int) v.pos;
+                const int    i1 = juce::jmin (i0 + 1, srcSamples - 1);
+                const float  frac = (float) (v.pos - (double) i0);
+                // Mod wheel tremolo: 1.0 = silent at trough, 1.0 = full at peak.
+                // Phase advances once per sample regardless of voice count;
+                // depth scales with the wheel position (0..1).
+                float tremGain = 1.0f;
+                if (modAmount > 1e-4f)
+                {
+                    midiTremoloPhase += tremPhaseInc;
+                    if (midiTremoloPhase > juce::MathConstants<double>::twoPi)
+                        midiTremoloPhase -= juce::MathConstants<double>::twoPi;
+                    const float t = 0.5f * (1.0f + (float) std::sin (midiTremoloPhase));
+                    tremGain = juce::jlimit (0.0f, 1.0f, 1.0f - modAmount * (1.0f - t));
+                }
+                const float  gain = v.env * v.velocity * sampleGain.load() * tremGain;
+                const bool   recordThisSample = recordingNow && i < recBlockLen;
+                const int    recChCount       = recordThisSample ? recordBuffer.getNumChannels() : 0;
+
+                for (int ch = 0; ch < chCount; ++ch)
+                {
+                    const int srcCh = ch % srcChannels;
+                    const float s0 = src.getSample (srcCh, i0);
+                    const float s1 = src.getSample (srcCh, i1);
+                    const float voiceSample = (s0 + (s1 - s0) * frac) * gain;
+                    buffer.addSample (ch, i, voiceSample);
+                    // Mirror into the recording slice so REC captures MIDI
+                    // performance. Mono recordings get the voice summed into
+                    // both rec channels for a usable stereo file on stop.
+                    if (recordThisSample && ch < recChCount)
+                        recordBuffer.addSample (ch, recStartPos + i, voiceSample);
+                }
+                // If the plugin is rendering mono out but the record buffer
+                // is stereo, mirror channel 0 into channel 1 so the saved
+                // sample isn't half-silent.
+                if (recordThisSample && chCount == 1 && recChCount >= 2)
+                {
+                    const int srcCh = 0;
+                    const float s0 = src.getSample (srcCh % srcChannels, i0);
+                    const float s1 = src.getSample (srcCh % srcChannels, i1);
+                    recordBuffer.addSample (1, recStartPos + i, (s0 + (s1 - s0) * frac) * gain);
+                }
+                v.pos += v.rate * pitchRatio * bendFactor;
+            }
+        }
+    }
 
     // ---- OUTPUT comp chain: apply the SAME preamp to playback so the INPUT
     // knob actually shapes what you HEAR (not just what gets recorded).
@@ -1137,6 +1520,64 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
             tapeDelayWritePos = (tapeDelayWritePos + numSamples) % bufLen;
         }
+    }
+
+    // ---- LO-FI master mode -------------------------------------------------
+    // Warm creamy character on the final mix. Tanh saturation gives the
+    // rounded analogue-tape body; a gentle 5-bit crush adds the digital
+    // grain underneath; a touch of HF rolloff keeps the highs silky.
+    // Blended 40 % wet / 60 % dry so the character is unmistakeable but
+    // doesn't bulldoze the underlying mix — feels like a vibe, not a wall.
+    if (lofiMode.load() && numOutChannels > 0)
+    {
+        const int   chCount         = juce::jmin (numOutChannels, kMaxFilterChannels);
+        // Knob 0..1 → internal wet 0..0.5. Default knob 0.8 keeps the
+        // previous 40 % wet feel; max 1.0 lets the user push to 50 % wet
+        // for a more aggressive lo-fi mash.
+        const float wetMix          = lofiMix.load() * 0.5f;
+        const float dryMix          = 1.0f - wetMix;
+        const float satDrive        = 2.0f;                                            // creamy warm
+        const float satNormalise    = 1.0f / std::tanh (satDrive);                     // unit-gain at full-scale
+        const float bitLevels       = 32.0f;                                           // ~5-bit, gentle crunch
+        const float lpCoef          = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi
+                                                               * 7000.0 / juce::jmax (1.0, hostSampleRate)));
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            for (int ch = 0; ch < chCount; ++ch)
+            {
+                auto* w = buffer.getWritePointer (ch);
+                const float dry = w[i];
+                float       wet = dry;
+
+                // 1) Warm creamy saturation (tape-style tanh).
+                wet = std::tanh (wet * satDrive) * satNormalise;
+
+                // 2) Gentle bit-crush — adds quantisation grain without
+                //    the harsh stepping of low bit depths.
+                wet = std::round (wet * bitLevels) / bitLevels;
+
+                // 3) Soft HF rolloff so the crush doesn't read as piercing.
+                lofiLpState[ch] += lpCoef * (wet - lofiLpState[ch]);
+                wet = lofiLpState[ch];
+
+                // 4) Parallel blend with the dry signal.
+                w[i] = juce::jlimit (-1.0f, 1.0f, dry * dryMix + wet * wetMix);
+            }
+        }
+    }
+
+    // ---- Finalise recording window for this block --------------------------
+    // Both the input-capture block (top of processBlock) and the MIDI voice
+    // renderer wrote into recordBuffer at [recStartPos, recStartPos + recBlockLen).
+    // Advance recordPos here so the next block continues where this one ended,
+    // and auto-stop if we hit capacity.
+    if (recordingNow && recBlockLen > 0)
+    {
+        const int newPos = recStartPos + recBlockLen;
+        recordPos.store (newPos);
+        if (newPos >= recCap)
+            recording.store (false);
     }
 }
 
@@ -2037,7 +2478,10 @@ bool SpoolAudioProcessor::loadSlot (int slot)
             snap.signalOrder[0], snap.signalOrder[1], snap.signalOrder[2]));
     }
 
-    looping.store (true);
+    // Start playback, but leave looping alone — the user controls that with
+    // the LOOP button. (Auto-looping was a hold-over from when slots were
+    // assumed to always contain seamless loops; with one-shot samples it
+    // turned every slot trigger into an unintended infinite loop.)
     playing.store (true);
     juce::Logger::writeToLog ("loadSlot: playback resumed, done");
     return true;
@@ -2069,7 +2513,7 @@ juce::AudioProcessorEditor* SpoolAudioProcessor::createEditor()
 namespace
 {
     constexpr int kStateMagic   = 0x53504F4C; // 'SPOL'
-    constexpr int kStateVersion = 1;
+    constexpr int kStateVersion = 3;            // v3: + LO-FI dry/wet knob
 
     inline void writeAudioBuffer (juce::MemoryOutputStream& s,
                                   const juce::AudioBuffer<float>* buf,
@@ -2199,6 +2643,11 @@ void SpoolAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         for (int k = 0; k < 3; ++k) out.writeInt (snap.signalOrder[k]);
     }
 
+    // v2 trailing fields — kept at the end so v1 readers can stop early.
+    out.writeBool (lofiMode.load());
+    // v3 — LO-FI dry/wet knob (visible only when LO-FI is engaged).
+    out.writeFloat (lofiMix.load());
+
     juce::Logger::writeToLog (juce::String::formatted (
         "getStateInformation: %d bytes written", (int) destData.getSize()));
 }
@@ -2313,6 +2762,17 @@ void SpoolAudioProcessor::setStateInformation (const void* data, int sizeInBytes
         slotSnapshots[(size_t) i] = snap;
     }
 
+    // v2 trailing fields — only present if the file is v2+ AND there's
+    // still bytes left to read (defensive against truncated files).
+    if (version >= 2 && in.getNumBytesRemaining() >= 1)
+        lofiMode.store (in.readBool());
+    else
+        lofiMode.store (false);
+    if (version >= 3 && in.getNumBytesRemaining() >= 4)
+        lofiMix.store (juce::jlimit (0.0f, 1.0f, in.readFloat()));
+    else
+        lofiMix.store (0.8f);
+
     juce::Logger::writeToLog ("setStateInformation: restored");
 }
 
@@ -2376,6 +2836,11 @@ void SpoolAudioProcessor::resetAllParameters()
     signalPathOrder[0].store (EffectFilter);
     signalPathOrder[1].store (EffectGhost);
     signalPathOrder[2].store (EffectHaze);
+
+    // LO-FI master mode off + mix back to default — RESET should always
+    // return the device to its clean / hi-fi default character.
+    lofiMode.store (false);
+    lofiMix.store (0.8f);
 
     // Tempo back to default 120
     setBpm (120.0);
