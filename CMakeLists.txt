@@ -30,10 +30,10 @@ if(APPLE)
 endif()
 
 juce_add_plugin(SPOOL
-    COMPANY_NAME                  "ksamples"
-    COMPANY_WEBSITE               "https://github.com/ksamples/spool"
-    BUNDLE_ID                     com.ksamples.spool
-    PLUGIN_MANUFACTURER_CODE      Kspl
+    COMPANY_NAME                  "itselliott"
+    COMPANY_WEBSITE               "https://github.com/itselliott/spool"
+    BUNDLE_ID                     com.itselliott.spool
+    PLUGIN_MANUFACTURER_CODE      ItsE
     PLUGIN_CODE                   Spol
     FORMATS                       ${SPOOL_FORMATS}
     PRODUCT_NAME                  "SPOOL"

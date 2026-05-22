@@ -32,7 +32,7 @@
       <a href="#showcase">Showcase</a>
       <a href="#install">Install</a>
       <a href="#controls">Controls</a>
-      <a class="nav-cta" href="https://github.com/ksamples/spool" target="_blank" rel="noopener">GitHub &rarr;</a>
+      <a class="nav-cta" href="https://github.com/itselliott/spool" target="_blank" rel="noopener">GitHub &rarr;</a>
     </div>
   </div>
 </nav>
@@ -73,11 +73,11 @@
       </div>
 
       <div class="cta-row">
-        <a class="cta cta-primary" href="https://github.com/ksamples/spool/releases/latest" target="_blank" rel="noopener">
+        <a class="cta cta-primary" href="https://github.com/itselliott/spool/releases/latest" target="_blank" rel="noopener">
           <span class="cta-icon">&darr;</span>
           <span>Download&nbsp;v1.0</span>
         </a>
-        <a class="cta cta-ghost" href="https://github.com/ksamples/spool" target="_blank" rel="noopener">
+        <a class="cta cta-ghost" href="https://github.com/itselliott/spool" target="_blank" rel="noopener">
           <span class="cta-icon">&#9733;</span>
           <span>Star&nbsp;on&nbsp;GitHub</span>
         </a>
@@ -128,8 +128,16 @@
         <!-- SP-L wordmark -->
         <text x="28" y="58" class="splwordmark">SP&middot;L</text>
 
-        <!-- big vinyl reel -->
-        <g class="reel-spin">
+        <!-- big vinyl reel — SMIL animateTransform is the only cross-browser
+             reliable way to spin a <g> around a fixed SVG-coord centre. CSS
+             transform-box / origin behaves differently in Safari / Firefox. -->
+        <g>
+          <animateTransform attributeName="transform"
+                            type="rotate"
+                            from="0 140 200"
+                            to="360 140 200"
+                            dur="6s"
+                            repeatCount="indefinite" />
           <circle cx="140" cy="200" r="92" fill="url(#reelMetal)" />
           <circle cx="140" cy="200" r="82" fill="url(#reelInk)" />
           <!-- grooves -->
@@ -422,7 +430,7 @@
           <span class="step-num">1</span>
           <div>
             <strong>Grab the build</strong>
-            <p>Download <code>SPOOL.vst3</code> from the latest <a href="https://github.com/ksamples/spool/releases/latest" target="_blank" rel="noopener">GitHub release</a>.</p>
+            <p>Download <code>SPOOL.vst3</code> from the latest <a href="https://github.com/itselliott/spool/releases/latest" target="_blank" rel="noopener">GitHub release</a>.</p>
           </div>
         </div>
         <div class="step">
@@ -438,7 +446,7 @@
           <span class="step-num">3</span>
           <div>
             <strong>Rescan plugins</strong>
-            <p>In Ableton: <em>Preferences &rsaquo; Plug-Ins &rsaquo; Rescan</em>. SPOOL appears under <code>ksamples</code>. Drop on an audio track.</p>
+            <p>In Ableton: <em>Preferences &rsaquo; Plug-Ins &rsaquo; Rescan</em>. SPOOL appears under <code>itselliott</code>. Drop on an audio track.</p>
           </div>
         </div>
       </div>
@@ -456,7 +464,7 @@
           <span class="step-num">1</span>
           <div>
             <strong>Grab the executable</strong>
-            <p>Download <code>SPOOL.exe</code> (Windows) or <code>SPOOL.app</code> (macOS) from the <a href="https://github.com/ksamples/spool/releases/latest" target="_blank" rel="noopener">latest release</a>.</p>
+            <p>Download <code>SPOOL.exe</code> (Windows) or <code>SPOOL.app</code> (macOS) from the <a href="https://github.com/itselliott/spool/releases/latest" target="_blank" rel="noopener">latest release</a>.</p>
           </div>
         </div>
         <div class="step">
@@ -488,7 +496,7 @@
           <span class="step-num">1</span>
           <div>
             <strong>Clone</strong>
-            <pre class="copy-block" data-copy="git clone https://github.com/ksamples/spool.git"><code>git clone https://github.com/ksamples/spool.git</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
+            <pre class="copy-block" data-copy="git clone https://github.com/itselliott/spool.git"><code>git clone https://github.com/itselliott/spool.git</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
           </div>
         </div>
         <div class="step">
@@ -615,15 +623,15 @@ cmake --build build --config Release</code><button class="copy-btn" type="button
     </div>
 
     <div class="footer-links">
-      <a href="https://github.com/ksamples/spool" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/ksamples/spool/releases" target="_blank" rel="noopener">Releases</a>
-      <a href="https://github.com/ksamples/spool/issues" target="_blank" rel="noopener">Report a bug</a>
-      <a href="https://github.com/ksamples/spool/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      <a href="https://github.com/itselliott/spool" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/itselliott/spool/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/itselliott/spool/issues" target="_blank" rel="noopener">Report a bug</a>
+      <a href="https://github.com/itselliott/spool/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
     </div>
 
     <div class="footer-fine">
       Built on <a href="https://juce.com" target="_blank" rel="noopener">JUCE</a>&nbsp;&middot; GPL&minus;3.0&nbsp;&middot; not affiliated with Teenage Engineering.<br />
-      &copy; 2026 ksamples.
+      &copy; 2026 itselliott.
     </div>
   </div>
 </footer>

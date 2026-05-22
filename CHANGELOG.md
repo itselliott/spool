@@ -77,4 +77,4 @@ First production release. VST3 + Standalone for Windows / macOS / Linux.
 - Build targets: `SPOOL_Standalone`, `SPOOL_VST3`, and `SPOOL_AU` (macOS only).
 - Warning-clean build (no C4456 shadowing, no unused-variable warnings).
 
-[1.0.0]: https://github.com/ksamples/spool/releases/tag/v1.0.0
+[1.0.0]: https://github.com/itselliott/spool/releases/tag/v1.0.0
