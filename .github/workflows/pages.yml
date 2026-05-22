@@ -29,6 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          # First-run bootstrap: enables Pages for the repo if it hasn't
+          # been deployed before (avoids the "Get Pages site failed: Not
+          # Found" error on the initial workflow run).
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
