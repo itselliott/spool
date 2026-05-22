@@ -583,6 +583,7 @@ private:
     juce::TextButton freezeButton;      // toggle, under HAZE
     juce::TextButton hazePresetButton;  // cycle 6 reverb presets, next to FREEZE
     juce::TextButton clearSampleButton; // ✕ — clears the loaded sample
+    juce::TextButton resetParamsButton; // RESET — wipes all knobs (sample + slots untouched)
 
     // Loop control row: 6 size buttons + cutoff cycle.
     std::array<juce::TextButton, 6> loopSizeButtons {};
@@ -620,6 +621,7 @@ private:
     juce::TextButton folderButton;      // ◫ — pick a folder (in OLED corner)
     juce::TextButton folderPrevButton;  // − — prev sample in folder
     juce::TextButton folderNextButton;  // + — next sample in folder
+    juce::TextButton menuButton;        // ≡ — credits / support / links popup
     std::unique_ptr<juce::FileChooser> folderChooser;
 
     // 8 loop slots: left-click to save (when loop active) or load, right-click to clear.
@@ -648,6 +650,20 @@ private:
     // Try to load a background image from the assets dir. Drop a JPG/PNG named
     // bg.jpg or bg.png at <project>/assets/ to set the SPOOL backdrop.
     void loadBackgroundImage();
+
+    // One-shot welcome / credits / donation overlay shown the first time
+    // SPOOL is opened on a given machine. Dismissed by clicking "Got it" —
+    // a persistent flag in %APPDATA%/SPOOL/preferences.settings stops it
+    // from showing again.
+    // showWelcomeOverlay is public so the standalone wrapper's Options menu
+    // ("About / Credits...") can pop it back up after the user dismissed it.
+public:
+    void showWelcomeOverlay();
+private:
+    void maybeShowWelcomeOverlay();
+    void dismissWelcomeOverlay();
+    class WelcomeOverlay; // forward decl
+    std::unique_ptr<WelcomeOverlay> welcomeOverlay;
 
     bool fileBeingDragged = false;
 

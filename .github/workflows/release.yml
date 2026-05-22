@@ -32,9 +32,12 @@ jobs:
       - name: Stage Windows artefacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path stage/windows | Out-Null
+          New-Item -ItemType Directory -Force -Path stage/windows/assets | Out-Null
           Copy-Item build/SPOOL_artefacts/Release/Standalone/SPOOL.exe       stage/windows/
           Copy-Item -Recurse build/SPOOL_artefacts/Release/VST3/SPOOL.vst3   stage/windows/
+          # bg.png is also embedded in the binary, but ship it loose too so
+          # users can swap it for their own theme art without rebuilding.
+          Copy-Item assets/bg.png                                            stage/windows/assets/
           Compress-Archive -Path stage/windows/* -DestinationPath SPOOL-windows.zip -Force
 
       - uses: actions/upload-artifact@v4
@@ -56,10 +59,11 @@ jobs:
 
       - name: Stage macOS artefacts
         run: |
-          mkdir -p stage/macos
+          mkdir -p stage/macos/assets
           cp -R build/SPOOL_artefacts/Release/Standalone/SPOOL.app stage/macos/
           cp -R build/SPOOL_artefacts/Release/VST3/SPOOL.vst3       stage/macos/
           cp -R build/SPOOL_artefacts/Release/AU/SPOOL.component    stage/macos/
+          cp assets/bg.png                                          stage/macos/assets/
           cd stage/macos
           zip -r ../../SPOOL-macos.zip .
 
@@ -103,9 +107,10 @@ jobs:
 
       - name: Stage Linux artefacts
         run: |
-          mkdir -p stage/linux
+          mkdir -p stage/linux/assets
           cp build/SPOOL_artefacts/Standalone/SPOOL stage/linux/
           cp -R build/SPOOL_artefacts/VST3/SPOOL.vst3 stage/linux/
+          cp assets/bg.png stage/linux/assets/
           cd stage/linux
           tar -czf ../../SPOOL-linux.tar.gz .
 

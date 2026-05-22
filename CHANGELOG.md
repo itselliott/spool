@@ -2,6 +2,54 @@
 
 All notable changes to SPOOL. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] — 2026-05-22
+
+Production-ready release. Major polish + new features on top of 1.0.0.
+
+### Added
+- **DAW state persistence** — `getStateInformation` / `setStateInformation` now fully serialize current sample audio + all 8 slot buffers + every effect parameter + BPM + signal-path order. Save your Ableton project, reopen, everything's back. Standalone auto-restores the last session from `%APPDATA%/SPOOL/last-session.spoolset` on launch.
+- **Insert-FX behaviour** — when no sample is playing, host audio passes straight through. Effects (FILTER, GHOST, HAZE, TAPE) still apply, so SPOOL can be used as a pure effects plugin on any track.
+- **Host BPM sync** — the DAW's transport tempo auto-overrides internal BPM each block. All tempo-synced FX (loop SIZE buttons, FILTER LFO, GHOST delay) follow.
+- **Drag-out the ↓ export button** — drops the current loop region as a 24-bit WAV onto any DAW track, Explorer, or Finder. Effects baked in.
+- **First-launch welcome card** — credits + donation prompt on first open per machine. Dismissable for good.
+- **Extended standalone Options menu** — JUCE's hamburger now includes: About / Credits, Report a Bug (mailto:elliottdevs@gmail.com), GitHub, Tip on Ko-fi, plus the version label.
+- **Red RESET LED** in the header — one click wipes all knobs / effects / signal-order back to factory default. Loaded sample + 8 slots untouched.
+- **GitHub Sponsors + Ko-fi** wired via `.github/FUNDING.yml` (Sponsor button on repo) and the landing page Support section.
+
+### Changed
+- **bg.png embedded** as a binary resource via `juce_add_binary_data` — backdrop renders in installed builds (release zips were missing the `assets/` folder).
+- **Rebranded from `ksamples` to `itselliott`** — company name, BUNDLE_ID, PLUGIN_MANUFACTURER_CODE, all docs + landing-page links.
+- **Diagnostic logger** moved from `C:/repo/spool/spool.log` to per-user app-data dir (cross-platform).
+- **Background loader** scans cwd/assets, `%APPDATA%/SPOOL/assets`, and `<exe dir>/assets` for `bg.jpg/png` overrides, falls back to embedded.
+- **Sample-gain value text** strips the ` dB` suffix.
+- **HAZE preset labels** renamed to evocative names: VAULT, CHROME, NEST, MIST, ABYSS, AURA (was HALL/PLATE/ROOM/CHAMBER/CAVE/SHIMMER).
+
+### Fixed
+- **BPM didn't propagate** — loop SIZE buttons stored fixed sample positions; changing BPM didn't recompute. Now atomically tracked + setBpm rescales the active loop window.
+- **Reel rotation orbited off-axis** — switched to SMIL `<animateTransform>` with absolute viewport-coord centre (CSS `transform-box` was unreliable across browsers).
+- **AURA shimmer was broken** — write/read positions desynced across channels, read pointer never advanced per-sample. Fixed with all-channels-per-sample processing + crossfaded dual read pointers to mask delay-line lap clicks.
+- **Knob hit-box** — clicks on the centre of a knob were eaten by the value label. Made the label non-interactive; slider now fills the full area below the icon strip.
+- **Filter cutoff Nyquist guard** — clamped below `sr * 0.49` so `tan()` doesn't overflow at low sample rates (22.05 / 32 kHz).
+- **OVERDUB safety** — NaN/Inf playPosition + negative odPos + zero-channel buffers all guarded.
+- **prepareToPlay** rejects bad sample rates with a 48 kHz fallback.
+- **DJ scratch overhaul** — per-sample rate smoothing kills zipper noise, bit-crush disabled while scratching, 6 kHz cartridge LP adds vinyl warmth.
+- **Slot save trims silence** + applies a 2 ms equal-power crossfade so loops wrap cleanly with no click.
+- **Theme propagation** — double-click SP·L now retints **all** accent widgets (was missing INPUT knob, LOOP/OVERDUB buttons, value labels, several cycle pills).
+- **Welcome overlay text** uses ASCII separators (`/`, `--`) — earlier UTF-8 bullet/em-dash didn't render in JUCE's default Windows font.
+- **C4456 `bitLevels` shadowing warning** fixed by renaming the tape-stage local.
+
+### Aesthetic
+- **Brushed-metal notched-pot knobs** replace the flat digital dials — 3D radial gradient body, faint brushing rings, dark recessed well with specular highlight on the rim, 13 tick marks where the active position glows accent.
+- **OLED-style BPM window** with neon-glow cascade (alpha layers under sharp text). Separate TAP TEMPO button next to it.
+- **LED-circle indicators** for INPUT comp voice and TAPE machine (was flat colored pills). Vector snowflake on FREEZE button (font-independent).
+- **Loop control row** slimmed; LOOP CUTOFF visually differentiated as an accent-filled mode pill.
+- **Live recording waveform** — scrolling 6-second peak meter from the live record buffer while REC is armed.
+
+### Build / packaging
+- **Version bumped** to 1.0.1 in CMakeLists + welcome overlay + standalone app.
+- **GitHub Actions release workflow** auto-builds VST3 + Standalone for Windows + macOS on tag push (`v*`). Linux best-effort, won't block. Release zips bundle `assets/bg.png` alongside the binary.
+- **GitHub Pages workflow** auto-publishes `docs/` to `itselliott.github.io/spool` on every push to main.
+
 ## [1.0.0] — 2026-05-21
 
 First production release. VST3 + Standalone for Windows / macOS / Linux.
@@ -77,4 +125,5 @@ First production release. VST3 + Standalone for Windows / macOS / Linux.
 - Build targets: `SPOOL_Standalone`, `SPOOL_VST3`, and `SPOOL_AU` (macOS only).
 - Warning-clean build (no C4456 shadowing, no unused-variable warnings).
 
+[1.0.1]: https://github.com/itselliott/spool/releases/tag/v1.0.1
 [1.0.0]: https://github.com/itselliott/spool/releases/tag/v1.0.0

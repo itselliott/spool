@@ -132,11 +132,29 @@ SpoolAudioProcessor::SpoolAudioProcessor()
                      .getChildFile ("session_" + stamp);
     sessionDir.createDirectory();
     juce::Logger::writeToLog ("ctor: sessionDir=" + sessionDir.getFullPathName());
+
+    // Auto-restore the last-session set (slots + effect state + samples).
+    // Only fires in standalone use — when SPOOL loads as a plugin, the DAW
+    // calls setStateInformation with its own saved state right after the
+    // constructor, which overwrites whatever we restored here.
+    const auto lastSession = getLastSessionFile();
+    if (lastSession.existsAsFile())
+    {
+        juce::Logger::writeToLog ("ctor: auto-restoring last session from "
+                                  + lastSession.getFullPathName());
+        loadSetFromFile (lastSession);
+    }
 }
 
 SpoolAudioProcessor::~SpoolAudioProcessor()
 {
     juce::Logger::writeToLog ("dtor: SpoolAudioProcessor");
+
+    // Auto-save current state so standalone re-launch restores the same
+    // samples + slots + knob positions. Plugin hosts handle save/restore
+    // via getStateInformation, but this file is still a useful backup.
+    saveSetToFile (getLastSessionFile());
+
     if (sessionDir.exists() && sessionDir.getFullPathName().contains ("session_"))
         sessionDir.deleteRecursively();
 
@@ -2039,8 +2057,369 @@ juce::AudioProcessorEditor* SpoolAudioProcessor::createEditor()
     return new SpoolAudioProcessorEditor (*this);
 }
 
-void SpoolAudioProcessor::getStateInformation (juce::MemoryBlock&) {}
-void SpoolAudioProcessor::setStateInformation (const void*, int) {}
+//==============================================================================
+// State persistence — the DAW calls these when the host project is saved /
+// reloaded. We serialize:
+//   1. Every atomic knob/button value
+//   2. The currently loaded sample's audio + sample-rate + name
+//   3. Each of the 8 slots: audio + full SlotSnapshot
+//   4. Any active loop region (drag-highlight + knob anchor + nudge offset)
+// On load, everything is reconstructed before the next processBlock fires.
+//
+namespace
+{
+    constexpr int kStateMagic   = 0x53504F4C; // 'SPOL'
+    constexpr int kStateVersion = 1;
+
+    inline void writeAudioBuffer (juce::MemoryOutputStream& s,
+                                  const juce::AudioBuffer<float>* buf,
+                                  double sampleRate)
+    {
+        const bool present = (buf != nullptr && buf->getNumSamples() > 0
+                              && buf->getNumChannels() > 0);
+        s.writeBool (present);
+        if (! present) return;
+        const int  ch = buf->getNumChannels();
+        const int  n  = buf->getNumSamples();
+        s.writeInt    (ch);
+        s.writeInt    (n);
+        s.writeDouble (sampleRate);
+        for (int c = 0; c < ch; ++c)
+            s.write (buf->getReadPointer (c), (size_t) n * sizeof (float));
+    }
+
+    inline bool readAudioBuffer (juce::MemoryInputStream& s,
+                                 juce::AudioBuffer<float>& outBuf,
+                                 double& outSampleRate)
+    {
+        const bool present = s.readBool();
+        if (! present) { outBuf.setSize (0, 0); outSampleRate = 0.0; return false; }
+        const int  ch = s.readInt();
+        const int  n  = s.readInt();
+        outSampleRate = s.readDouble();
+        if (ch <= 0 || ch > 32 || n <= 0 || n > (1 << 28))   // sanity
+            return false;
+        outBuf.setSize (ch, n, false, true, false);
+        for (int c = 0; c < ch; ++c)
+            s.read (outBuf.getWritePointer (c), n * sizeof (float));
+        return true;
+    }
+}
+
+void SpoolAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    juce::Logger::writeToLog ("getStateInformation: serializing...");
+    juce::MemoryOutputStream out (destData, false);
+    out.writeInt (kStateMagic);
+    out.writeInt (kStateVersion);
+
+    // ---- Atomic knob/button state -----------------------------------------
+    out.writeFloat  (inputMix.load());
+    out.writeInt    (inputCompMode.load());
+    out.writeFloat  (sampleGain.load());
+    out.writeFloat  (playbackSpeed.load());
+    out.writeFloat  (filterPos.load());
+    out.writeInt    (filterQMode.load());
+    out.writeInt    (filterLfoRate.load());
+    out.writeInt    (filterLfoRange.load());
+    out.writeFloat  (ghostAmount.load());
+    out.writeInt    (ghostTimeMode.load());
+    out.writeFloat  (hazeAmount.load());
+    out.writeBool   (hazeFrozen.load());
+    out.writeInt    (hazePreset.load());
+    out.writeFloat  (tapeMix.load());
+    out.writeInt    (tapeMachine.load());
+    out.writeInt    (loopCutoffMode.load());
+    out.writeInt    (loopLengthMode.load());
+    out.writeFloat  (loopAnchorOffsetSeconds.load());
+    out.writeFloat  (lastLoopSizeBeats.load());
+    out.writeDouble (internalBpm.load());
+    out.writeBool   (overdubEnabled.load());
+    out.writeBool   (looping.load());
+    for (int i = 0; i < kNumEffects; ++i) out.writeInt (signalPathOrder[i].load());
+
+    // ---- Loop region (drag highlight + knob anchor) -----------------------
+    out.writeDouble (customLoopStart.load());
+    out.writeDouble (customLoopEnd.load());
+    out.writeDouble (loopAnchorBase);
+
+    // ---- Currently loaded sample ------------------------------------------
+    Sample::Ptr cur;
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        cur = currentSample;
+    }
+    if (cur != nullptr)
+    {
+        out.writeString (cur->name);
+        writeAudioBuffer (out, &cur->buffer, cur->sourceSampleRate);
+    }
+    else
+    {
+        out.writeString ({});
+        writeAudioBuffer (out, nullptr, 0.0);
+    }
+
+    // ---- Eight slots: audio + snapshot ------------------------------------
+    for (int i = 0; i < kNumSlots; ++i)
+    {
+        auto& slot = slots[(size_t) i];
+        if (slot != nullptr)
+        {
+            out.writeString (slot->name);
+            writeAudioBuffer (out, &slot->buffer, slot->sourceSampleRate);
+        }
+        else
+        {
+            out.writeString ({});
+            writeAudioBuffer (out, nullptr, 0.0);
+        }
+
+        const auto& snap = slotSnapshots[(size_t) i];
+        out.writeBool   (snap.valid);
+        if (! snap.valid) continue;
+
+        out.writeFloat  (snap.inputMix);
+        out.writeInt    (snap.inputCompMode);
+        out.writeFloat  (snap.sampleGain);
+        out.writeFloat  (snap.playbackSpeed);
+        out.writeFloat  (snap.filterPos);
+        out.writeInt    (snap.filterQMode);
+        out.writeInt    (snap.filterLfoRate);
+        out.writeInt    (snap.filterLfoRange);
+        out.writeFloat  (snap.ghostAmount);
+        out.writeInt    (snap.ghostTimeMode);
+        out.writeFloat  (snap.hazeAmount);
+        out.writeBool   (snap.hazeFrozen);
+        out.writeInt    (snap.hazePreset);
+        out.writeFloat  (snap.tapeMix);
+        out.writeInt    (snap.tapeMachine);
+        out.writeInt    (snap.loopCutoffMode);
+        out.writeDouble (snap.bpm);
+        for (int k = 0; k < 3; ++k) out.writeInt (snap.signalOrder[k]);
+    }
+
+    juce::Logger::writeToLog (juce::String::formatted (
+        "getStateInformation: %d bytes written", (int) destData.getSize()));
+}
+
+void SpoolAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    juce::Logger::writeToLog (juce::String::formatted (
+        "setStateInformation: %d bytes received", sizeInBytes));
+    if (data == nullptr || sizeInBytes < 8) return;
+
+    juce::MemoryInputStream in (data, (size_t) sizeInBytes, false);
+    const int magic = in.readInt();
+    if (magic != kStateMagic) { juce::Logger::writeToLog ("state: bad magic, abort"); return; }
+    const int version = in.readInt();
+    if (version > kStateVersion)
+    {
+        juce::Logger::writeToLog ("state: future version, abort");
+        return;
+    }
+
+    // ---- Atomic knob/button state -----------------------------------------
+    inputMix              .store (in.readFloat());
+    inputCompMode         .store (in.readInt());
+    sampleGain            .store (in.readFloat());
+    playbackSpeed         .store (in.readFloat());
+    filterPos             .store (in.readFloat());
+    filterQMode           .store (in.readInt());
+    filterLfoRate         .store (in.readInt());
+    filterLfoRange        .store (in.readInt());
+    ghostAmount           .store (in.readFloat());
+    ghostTimeMode         .store (in.readInt());
+    hazeAmount            .store (in.readFloat());
+    hazeFrozen            .store (in.readBool());
+    hazePreset            .store (in.readInt());
+    tapeMix               .store (in.readFloat());
+    tapeMachine           .store (in.readInt());
+    loopCutoffMode        .store (in.readInt());
+    loopLengthMode        .store (in.readInt());
+    loopAnchorOffsetSeconds.store (in.readFloat());
+    lastLoopSizeBeats     .store (in.readFloat());
+    setBpm                (in.readDouble());     // setter recomputes loop window
+    overdubEnabled        .store (in.readBool());
+    looping               .store (in.readBool());
+    for (int i = 0; i < kNumEffects; ++i) signalPathOrder[i].store (in.readInt());
+
+    // ---- Loop region (drag highlight + knob anchor) -----------------------
+    customLoopStart.store (in.readDouble());
+    customLoopEnd  .store (in.readDouble());
+    loopAnchorBase = in.readDouble();
+
+    // ---- Current sample ----------------------------------------------------
+    const juce::String curName = in.readString();
+    {
+        auto* newSample = new Sample();
+        newSample->name = curName;
+        if (readAudioBuffer (in, newSample->buffer, newSample->sourceSampleRate))
+        {
+            Sample::Ptr swapIn (newSample);
+            {
+                const juce::SpinLock::ScopedLockType lock (sampleLock);
+                currentSample = swapIn;
+            }
+            thumbnail.reset (newSample->buffer.getNumChannels(),
+                             newSample->sourceSampleRate,
+                             newSample->buffer.getNumSamples());
+            thumbnail.addBlock (0, newSample->buffer, 0, newSample->buffer.getNumSamples());
+        }
+        else
+        {
+            delete newSample;
+            const juce::SpinLock::ScopedLockType lock (sampleLock);
+            currentSample = nullptr;
+        }
+    }
+
+    // ---- Eight slots -------------------------------------------------------
+    for (int i = 0; i < kNumSlots; ++i)
+    {
+        const juce::String slotName = in.readString();
+        auto* newSlot = new Sample();
+        newSlot->name = slotName;
+        if (readAudioBuffer (in, newSlot->buffer, newSlot->sourceSampleRate))
+            slots[(size_t) i] = Sample::Ptr (newSlot);
+        else
+        {
+            delete newSlot;
+            slots[(size_t) i] = nullptr;
+        }
+
+        SlotSnapshot snap;
+        snap.valid = in.readBool();
+        if (! snap.valid) { slotSnapshots[(size_t) i] = snap; continue; }
+
+        snap.inputMix       = in.readFloat();
+        snap.inputCompMode  = in.readInt();
+        snap.sampleGain     = in.readFloat();
+        snap.playbackSpeed  = in.readFloat();
+        snap.filterPos      = in.readFloat();
+        snap.filterQMode    = in.readInt();
+        snap.filterLfoRate  = in.readInt();
+        snap.filterLfoRange = in.readInt();
+        snap.ghostAmount    = in.readFloat();
+        snap.ghostTimeMode  = in.readInt();
+        snap.hazeAmount     = in.readFloat();
+        snap.hazeFrozen     = in.readBool();
+        snap.hazePreset     = in.readInt();
+        snap.tapeMix        = in.readFloat();
+        snap.tapeMachine    = in.readInt();
+        snap.loopCutoffMode = in.readInt();
+        snap.bpm            = in.readDouble();
+        for (int k = 0; k < 3; ++k) snap.signalOrder[k] = in.readInt();
+        slotSnapshots[(size_t) i] = snap;
+    }
+
+    juce::Logger::writeToLog ("setStateInformation: restored");
+}
+
+//==============================================================================
+// Set save / load — wraps get/setStateInformation in a single .spoolset file
+// so users can move sets between sessions, share them, or auto-restore the
+// last standalone session on next launch.
+//
+juce::File SpoolAudioProcessor::getLastSessionFile()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+               .getChildFile ("SPOOL").getChildFile ("last-session.spoolset");
+}
+
+void SpoolAudioProcessor::resetAllParameters()
+{
+    juce::Logger::writeToLog ("resetAllParameters: factory defaults");
+
+    // INPUT preamp
+    inputMix      .store (0.0f);
+    inputCompMode .store (CompVintage);
+
+    // SAMPLE GAIN
+    sampleGain.store (1.0f);
+
+    // SPEED
+    playbackSpeed.store (1.0f);
+
+    // FILTER + LFO
+    filterPos      .store (0.5f);    // 0.5 = bypass
+    filterQMode    .store (1);       // MID
+    filterLfoRate  .store (0);       // OFF
+    filterLfoRange .store (1);       // MD
+    filterLfoPhase = 0.0;
+
+    // GHOST
+    ghostAmount   .store (0.0f);
+    ghostTimeMode .store (1);        // 1/8
+
+    // HAZE
+    hazeAmount .store (0.0f);
+    hazeFrozen .store (false);
+    hazePreset .store (PresetHall);
+
+    // TAPE
+    tapeMix     .store (0.0f);
+    tapeMachine .store (0);          // SAT
+
+    // LOOP cutoff slope + knob-loop length
+    loopCutoffMode.store (0);        // -12
+    loopLengthMode.store (0);        // off
+    loopAnchorBase = -1.0;
+    loopAnchorOffsetSeconds.store (0.0f);
+    lastLoopSizeBeats.store (0.0f);
+
+    // Custom drag-highlight loop region
+    customLoopStart.store (-1.0);
+    customLoopEnd  .store (-1.0);
+
+    // Signal-path order
+    signalPathOrder[0].store (EffectFilter);
+    signalPathOrder[1].store (EffectGhost);
+    signalPathOrder[2].store (EffectHaze);
+
+    // Tempo back to default 120
+    setBpm (120.0);
+
+    // Reset every per-channel DSP state buffer so old reverb tails / delay
+    // contents / filter ringing don't bleed through after the reset.
+    for (int ch = 0; ch < kMaxFilterChannels; ++ch)
+    {
+        warmthHpState[ch] = warmthHpPrev[ch] = warmthLpState[ch] = 0.0f;
+        compEnv      [ch] = outCompEnv [ch] = 0.0f;
+        outLpState   [ch] = outHpState [ch] = outHpPrev[ch] = 0.0f;
+        ghostFbLp    [ch] = 0.0f;
+        svfLow       [ch] = svfBand   [ch] = 0.0f;
+        srrHold      [ch] = 0.0f;
+        scratchLpState[ch] = 0.0f;
+        shimmerHpState[ch] = shimmerHpPrev[ch] = 0.0f;
+        hazePreHpState[ch] = hazePreHpPrev[ch] = 0.0f;
+        hazePostLpState[ch] = 0.0f;
+    }
+    ghostDelayBuf.clear();
+    tapeDelayBuf .clear();
+    shimmerBuf   .clear();
+    hazeReverb.reset();
+}
+
+bool SpoolAudioProcessor::saveSetToFile (const juce::File& destination)
+{
+    juce::Logger::writeToLog ("saveSetToFile: " + destination.getFullPathName());
+    juce::MemoryBlock blob;
+    getStateInformation (blob);
+    destination.getParentDirectory().createDirectory();
+    destination.deleteFile();
+    return destination.replaceWithData (blob.getData(), blob.getSize());
+}
+
+bool SpoolAudioProcessor::loadSetFromFile (const juce::File& source)
+{
+    juce::Logger::writeToLog ("loadSetFromFile: " + source.getFullPathName());
+    if (! source.existsAsFile()) return false;
+    juce::MemoryBlock blob;
+    if (! source.loadFileAsData (blob)) return false;
+    setStateInformation (blob.getData(), (int) blob.getSize());
+    return true;
+}
 
 //==============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

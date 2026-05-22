@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#include <BinaryData.h>     // bg.png embedded via juce_add_binary_data
 
 namespace
 {
@@ -332,6 +333,176 @@ void TapeReelComponent::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+// One-shot welcome / credits / donation overlay shown the first time SPOOL
+// opens on a machine. Dismissed by clicking "Got it"; a persistent flag in
+// %APPDATA%/SPOOL/preferences.settings stops it from reappearing.
+//
+// Defined here (not at file scope below) so the editor's resized() and
+// destructor can see the full type when they touch the unique_ptr<WelcomeOverlay>.
+//
+class SpoolAudioProcessorEditor::WelcomeOverlay : public juce::Component
+{
+public:
+    WelcomeOverlay (SpoolAudioProcessorEditor& ownerIn) : owner (ownerIn)
+    {
+        // OK / dismiss button
+        okBtn.setButtonText ("Got it");
+        okBtn.setColour (juce::TextButton::buttonColourId,   kAccent);
+        okBtn.setColour (juce::TextButton::buttonOnColourId, kAccent.brighter (0.15f));
+        okBtn.setColour (juce::TextButton::textColourOffId,  juce::Colours::black);
+        okBtn.setColour (juce::TextButton::textColourOnId,   juce::Colours::black);
+        okBtn.onClick = [this] { owner.dismissWelcomeOverlay(); };
+        addAndMakeVisible (okBtn);
+
+        // Ko-fi support
+        kofiBtn.setButtonText ("Tip on Ko-fi");
+        kofiBtn.setColour (juce::TextButton::buttonColourId,   kPanelDark);
+        kofiBtn.setColour (juce::TextButton::buttonOnColourId, kAccent);
+        kofiBtn.setColour (juce::TextButton::textColourOffId,
+                           juce::Colour::fromRGB (0xe6, 0xe6, 0xe8));
+        kofiBtn.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+        kofiBtn.onClick = []
+        {
+            juce::URL ("https://ko-fi.com/itselliott").launchInDefaultBrowser();
+        };
+        addAndMakeVisible (kofiBtn);
+
+        // GitHub link
+        ghBtn.setButtonText ("GitHub");
+        ghBtn.setColour (juce::TextButton::buttonColourId,   kPanelDark);
+        ghBtn.setColour (juce::TextButton::buttonOnColourId, kAccent);
+        ghBtn.setColour (juce::TextButton::textColourOffId,
+                         juce::Colour::fromRGB (0xe6, 0xe6, 0xe8));
+        ghBtn.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+        ghBtn.onClick = []
+        {
+            juce::URL ("https://github.com/itselliott/spool").launchInDefaultBrowser();
+        };
+        addAndMakeVisible (ghBtn);
+
+        setInterceptsMouseClicks (true, true);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        // Dim the panel behind the card so the popup reads as modal.
+        g.fillAll (juce::Colour::fromRGB (0x05, 0x05, 0x07).withAlpha (0.78f));
+
+        // Card body — silver bezel matching the chassis.
+        const auto card = cardBounds().toFloat();
+        juce::ColourGradient bezelGrad (
+            juce::Colour::fromRGB (0xd8, 0xd8, 0xdc), card.getX(), card.getY(),
+            juce::Colour::fromRGB (0x6d, 0x6d, 0x72), card.getX(), card.getBottom(),
+            false);
+        g.setGradientFill (bezelGrad);
+        g.fillRoundedRectangle (card, 12.0f);
+
+        // Inner dark panel.
+        const auto inner = card.reduced (10.0f);
+        g.setColour (juce::Colour::fromRGB (0x12, 0x12, 0x16));
+        g.fillRoundedRectangle (inner, 8.0f);
+        g.setColour (kAccent.withAlpha (0.4f));
+        g.drawRoundedRectangle (inner.reduced (0.5f), 8.0f, 1.0f);
+
+        // SP·L logo block.
+        const float logoSize = 56.0f;
+        const auto logoArea = juce::Rectangle<float> (
+            inner.getX() + 20.0f, inner.getY() + 22.0f, logoSize, logoSize);
+        juce::ColourGradient logoGrad (
+            juce::Colour::fromRGB (0xd8, 0xd8, 0xdc),
+            logoArea.getX(), logoArea.getY(),
+            juce::Colour::fromRGB (0x4a, 0x4a, 0x50),
+            logoArea.getRight(), logoArea.getBottom(),
+            false);
+        g.setGradientFill (logoGrad);
+        g.fillRoundedRectangle (logoArea, 10.0f);
+        g.setColour (juce::Colour::fromRGB (0x18, 0x18, 0x1c));
+        g.setFont (juce::Font (juce::FontOptions {
+            juce::Font::getDefaultMonospacedFontName(), 20.0f, juce::Font::bold }));
+        g.drawText (juce::String::fromUTF8 ("SP\xC2\xB7L"),
+                    logoArea, juce::Justification::centred, false);
+
+        // Title "SPOOL v1.0.1"
+        const auto titleArea = juce::Rectangle<float> (
+            logoArea.getRight() + 14.0f, logoArea.getY(),
+            inner.getWidth() - logoArea.getWidth() - 50.0f, 28.0f);
+        g.setColour (juce::Colours::white);
+        g.setFont (juce::Font (juce::FontOptions { 26.0f, juce::Font::bold }));
+        g.drawText ("SPOOL", titleArea, juce::Justification::topLeft, false);
+        g.setColour (juce::Colour::fromRGB (0x88, 0x88, 0x92));
+        g.setFont (juce::Font (juce::FontOptions {
+            juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain }));
+        // Plain ASCII separators only — JUCE's default Windows font fallback
+        // chain doesn't have glyphs for the unicode bullet / em-dash, so even
+        // properly encoded UTF-8 ends up as tofu. Slash + double-hyphen read
+        // cleanly and ship in every system font.
+        g.drawText ("v1.0.1  /  GPL-3.0",
+                    titleArea.translated (0.0f, 30.0f),
+                    juce::Justification::topLeft, false);
+
+        // Body copy
+        const auto body = juce::Rectangle<float> (
+            inner.getX() + 20.0f, logoArea.getBottom() + 22.0f,
+            inner.getWidth() - 40.0f, 130.0f);
+        g.setColour (juce::Colour::fromRGB (0xcc, 0xcc, 0xd0));
+        g.setFont (juce::Font (juce::FontOptions { 14.0f, juce::Font::plain }));
+
+        const juce::String bodyText =
+            "A sampler / looper / field recorder in the spirit of the $1,499 "
+            "Teenage Engineering TP-7.\n\n"
+            "Built by itselliott. Free and open-source forever. "
+            "If SPOOL earned a spot in your toolbox, a small tip keeps "
+            "development going. No pressure -- the plugin stays free either way.";
+        g.drawFittedText (bodyText, body.toNearestInt(),
+                          juce::Justification::topLeft, 8);
+    }
+
+    void resized() override
+    {
+        // Layout buttons at the bottom of the card.
+        const auto card  = cardBounds();
+        const auto inner = card.reduced (10);
+        const int  btnH  = 30;
+        const int  pad   = 16;
+        const int  btnY  = inner.getBottom() - btnH - pad;
+
+        const int leftW  = 110;
+        kofiBtn.setBounds (inner.getX() + pad,             btnY, leftW, btnH);
+        ghBtn  .setBounds (inner.getX() + pad + leftW + 8, btnY, 86,    btnH);
+
+        const int okW = 86;
+        okBtn.setBounds (inner.getRight() - pad - okW, btnY, okW, btnH);
+    }
+
+private:
+    juce::Rectangle<int> cardBounds() const
+    {
+        const int w = juce::jmin (getWidth() - 40, 440);
+        const int h = 340;
+        return { (getWidth() - w) / 2, (getHeight() - h) / 2, w, h };
+    }
+
+    SpoolAudioProcessorEditor& owner;
+    juce::TextButton okBtn, kofiBtn, ghBtn;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WelcomeOverlay)
+};
+
+namespace
+{
+    juce::PropertiesFile::Options welcomePrefsOptions()
+    {
+        juce::PropertiesFile::Options o;
+        o.applicationName     = "SPOOL";
+        o.filenameSuffix      = "settings";
+        o.folderName          = "SPOOL";
+        o.osxLibrarySubFolder = "Application Support";
+        return o;
+    }
+
+    constexpr const char* kWelcomeShownKey = "welcomeShown_v1";
+}
+
+//==============================================================================
 SpoolAudioProcessorEditor::SpoolAudioProcessorEditor (SpoolAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p)
 {
@@ -495,6 +666,21 @@ SpoolAudioProcessorEditor::SpoolAudioProcessorEditor (SpoolAudioProcessor& p)
         repaint();
     };
     addAndMakeVisible (clearSampleButton);
+
+    // --- RESET LED: small red circle in the header, between wordmark and
+    //     OLED. Matches the comp + tape LED indicators (LedPillLookAndFeel).
+    //     One click resets every knob / button / effect to factory default;
+    //     slots 1-8 and the loaded sample stay intact.
+    resetParamsButton.setButtonText ({});
+    resetParamsButton.setColour (juce::TextButton::buttonColourId, kRecord);
+    resetParamsButton.setLookAndFeel (&ledPillLnf);
+    resetParamsButton.onClick = [this]
+    {
+        processorRef.resetAllParameters();
+        syncControlsFromProcessor();
+        repaint();
+    };
+    addAndMakeVisible (resetParamsButton);
 
     // --- Folder browse + prev/next sample (in OLED area) -------------------
     auto styleOledBtn = [this] (juce::TextButton& b)
@@ -890,6 +1076,11 @@ SpoolAudioProcessorEditor::SpoolAudioProcessorEditor (SpoolAudioProcessor& p)
 
     lastTickMs = juce::Time::getMillisecondCounterHiRes();
     startTimerHz (30);
+
+    // First-launch welcome / credits / donation card. Stays modal-feeling
+    // (dims the panel behind it) until the user clicks "Got it" — never
+    // shown again on subsequent launches.
+    maybeShowWelcomeOverlay();
 }
 
 SpoolAudioProcessorEditor::~SpoolAudioProcessorEditor()
@@ -913,6 +1104,7 @@ SpoolAudioProcessorEditor::~SpoolAudioProcessorEditor()
     inputCompButton  .setLookAndFeel (nullptr);
     tapeMachineButton.setLookAndFeel (nullptr);
     freezeButton     .setLookAndFeel (nullptr);
+    resetParamsButton.setLookAndFeel (nullptr);
     processorRef.getThumbnail().removeChangeListener (this);
 }
 
@@ -1101,6 +1293,13 @@ void SpoolAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
 
 void SpoolAudioProcessorEditor::resized()
 {
+    // Welcome overlay (if showing) covers the whole window.
+    if (welcomeOverlay != nullptr)
+    {
+        welcomeOverlay->setBounds (getLocalBounds());
+        welcomeOverlay->resized();
+    }
+
     // Vertical handheld layout. The aluminium frame consumes kBezel on every side.
     auto inner = getLocalBounds().reduced (kBezel + 4);
 
@@ -1125,6 +1324,18 @@ void SpoolAudioProcessorEditor::resized()
         const int navW = oled.getWidth() / 2 - 2;
         folderPrevButton.setBounds (oled.getX(),                  navY, navW, navH);
         folderNextButton.setBounds (oled.getX() + navW + 4,       navY, navW, navH);
+
+        // RESET LED — small square (rendered as a red circle by ledPillLnf)
+        // sitting in the empty header space between the SP-L wordmark and
+        // the OLED. Right edge is clamped to stay clear of the OLED.
+        const int resetSz       = 22;
+        const int availStart    = wordmarkArea.getRight() + 8;
+        const int availEnd      = oled.getX() - 8;
+        const int availWidth    = juce::jmax (resetSz, availEnd - availStart);
+        const int resetX        = availStart + (availWidth - resetSz) / 2;
+        resetParamsButton.setBounds (resetX,
+                                     wordmarkArea.getCentreY() - resetSz / 2,
+                                     resetSz, resetSz);
     }
     inner.removeFromTop (78);                    // header: SP-L + OLED (drawn in paint())
     inner.removeFromTop (22);                    // spacer below header (was 4 — now leaves room for nav buttons)
@@ -1683,6 +1894,34 @@ void SpoolAudioProcessorEditor::drawWaveform (juce::Graphics& g, juce::Rectangle
     thumb.drawChannels (g, area.reduced (6, 8), start, start + window, 1.0f);
 }
 
+void SpoolAudioProcessorEditor::maybeShowWelcomeOverlay()
+{
+    juce::PropertiesFile prefs (welcomePrefsOptions());
+    if (prefs.getBoolValue (kWelcomeShownKey, false))
+        return;     // user has seen it already
+    showWelcomeOverlay();
+}
+
+void SpoolAudioProcessorEditor::showWelcomeOverlay()
+{
+    // Force-show — used by the standalone Options menu's "About / Credits"
+    // entry to reopen the welcome card any time after dismissal.
+    if (welcomeOverlay != nullptr) return;    // already up
+    welcomeOverlay = std::make_unique<WelcomeOverlay> (*this);
+    welcomeOverlay->setBounds (getLocalBounds());
+    welcomeOverlay->resized();
+    addAndMakeVisible (welcomeOverlay.get());
+    welcomeOverlay->toFront (true);
+}
+
+void SpoolAudioProcessorEditor::dismissWelcomeOverlay()
+{
+    juce::PropertiesFile prefs (welcomePrefsOptions());
+    prefs.setValue (kWelcomeShownKey, true);
+    prefs.saveIfNeeded();
+    welcomeOverlay.reset();
+}
+
 void SpoolAudioProcessorEditor::loadBackgroundImage()
 {
     // Optional custom background. Users can drop a `bg.jpg` / `bg.png` (or
@@ -1715,6 +1954,15 @@ void SpoolAudioProcessorEditor::loadBackgroundImage()
             }
         }
     }
+
+    // No disk override found — fall back to the bg.png embedded into the
+    // binary at build time via juce_add_binary_data (CMakeLists.txt). This
+    // is what makes the background work in shipped releases, since the
+    // installed .exe/.vst3 has no on-disk assets/ folder beside it.
+    auto embedded = juce::ImageFileFormat::loadFrom (BinaryData::bg_png,
+                                                     BinaryData::bg_pngSize);
+    if (embedded.isValid())
+        backgroundImage = embedded;
 }
 
 void SpoolAudioProcessorEditor::syncControlsFromProcessor()

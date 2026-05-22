@@ -129,6 +129,23 @@ Cleared each launch. Useful when reporting crashes.
 
 ---
 
+## Support / bug reports
+
+Found a bug or want to suggest a feature?
+
+- **Email**: [elliottdevs@gmail.com](mailto:elliottdevs@gmail.com?subject=SPOOL%20Bug%20Report) — pre-filled subject so it lands in the right pile. Please include your SPOOL version (shown in the standalone Options → menu, or hover the version line in About / Credits), OS, DAW (if applicable), what happened, and steps to reproduce.
+- **GitHub Issues**: [github.com/itselliott/spool/issues](https://github.com/itselliott/spool/issues) — great for anything reproducible.
+- **In-plugin shortcut**: standalone → Options menu → **Report a Bug** → opens your default mail client with the version + OS template already filled out.
+
+## Support development
+
+SPOOL is free forever. If it earned a spot in your toolbox, optional tips keep the lights on:
+
+- [Tip on Ko-fi](https://ko-fi.com/itselliott) — one-off or recurring, 0% fee on direct tips.
+- [GitHub Sponsors](https://github.com/sponsors/itselliott) — monthly or one-off, GitHub takes 0%.
+
+---
+
 ## License
 
 SPOOL is built on [JUCE 8](https://juce.com/), pulled in via CMake `FetchContent` under JUCE's GPLv3 terms. The SPOOL source code itself is provided as-is; redistribution must comply with JUCE's licensing — see [juce.com/get-juce/](https://juce.com/get-juce/) for commercial licensing if you intend to ship binaries non-GPL.

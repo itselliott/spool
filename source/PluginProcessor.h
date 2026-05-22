@@ -254,6 +254,22 @@ public:
     // is in place we'll upgrade this to an offline render of the processed signal.
     bool exportToWav (const juce::File& destination);
 
+    // Reset every knob / button / effect parameter back to its factory
+    // default. INTENTIONALLY does not touch the currently loaded sample,
+    // any slot audio, or any slot snapshot — just the live engine state.
+    // Used by the red RESET button in the header.
+    void resetAllParameters();
+
+    // Save / load the entire SPOOL set (samples in all 8 slots + every
+    // knob/button/effect state + tempo + signal-path order) to a single
+    // .spoolset file. Used by both the explicit Save Set / Load Set
+    // buttons in the editor and the standalone auto-restore (writes
+    // last-session.spoolset to the user app-data dir on shutdown,
+    // re-reads it on next launch).
+    bool saveSetToFile  (const juce::File& destination);
+    bool loadSetFromFile(const juce::File& source);
+    static juce::File getLastSessionFile();
+
     // Render the currently selected loop region (custom drag-highlight,
     // knob-based loop, or — fallback — the whole sample) to a temp WAV
     // with the full effect chain baked in. Used by the drag-out so the

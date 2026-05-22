@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(SPOOL VERSION 1.0.0 LANGUAGES CXX)
+project(SPOOL VERSION 1.0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,12 +52,26 @@ juce_add_plugin(SPOOL
 target_sources(SPOOL PRIVATE
     source/PluginProcessor.cpp
     source/PluginEditor.cpp
+    source/SpoolStandaloneApp.cpp
 )
+
+# ---- Embed the bg.png as a binary resource --------------------------------
+# Without this the chassis background would silently miss in installed
+# builds (the release zip wouldn't carry assets/ alongside the binary).
+# Embedding bakes the image into the executable / plugin module so it works
+# everywhere by default; users can still override by dropping their own
+# bg.png into <cwd>/assets/ or %APPDATA%/SPOOL/assets/.
+juce_add_binary_data(SPOOL_BinaryData
+    SOURCES
+        assets/bg.png
+)
+target_link_libraries(SPOOL PRIVATE SPOOL_BinaryData)
 
 target_compile_definitions(SPOOL PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1  # we provide our own entry point + extended Options menu
 )
 
 target_link_libraries(SPOOL PRIVATE
