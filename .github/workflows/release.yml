@@ -69,8 +69,12 @@ jobs:
           path: SPOOL-macos.zip
 
   # ---- Linux ----------------------------------------------------------------
+  # Best-effort: build for Ubuntu but don't gate the release on it. JUCE's
+  # Linux dep tree is fiddly (webkit version drift, pkg-config quirks) and
+  # we don't want a transient apt failure to block Windows/macOS releases.
   linux:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -80,10 +84,16 @@ jobs:
           sudo apt-get install -y \
             libasound2-dev libjack-jackd2-dev \
             ladspa-sdk libcurl4-openssl-dev \
-            libfreetype6-dev libx11-dev libxcomposite-dev \
+            libfreetype6-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev \
             libxcursor-dev libxext-dev libxinerama-dev \
-            libxrandr-dev libxrender-dev libwebkit2gtk-4.1-dev \
-            libglu1-mesa-dev mesa-common-dev
+            libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev pkg-config \
+            || true
+          # webkit version drift between Ubuntu releases — try 4.1 first,
+          # fall back to 4.0 — we don't use the browser anyway (JUCE_WEB_BROWSER=0).
+          sudo apt-get install -y libwebkit2gtk-4.1-dev || \
+            sudo apt-get install -y libwebkit2gtk-4.0-dev || true
 
       - name: Configure CMake
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -105,9 +115,10 @@ jobs:
           path: SPOOL-linux.tar.gz
 
   # ---- Release (only on tags) ----------------------------------------------
+  # Only needs Windows + macOS — Linux is best-effort and shouldn't block.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ windows, macos, linux ]
+    needs: [ windows, macos ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -119,10 +130,14 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Linux is optional — `fail_on_unmatched_files: false` lets the
+          # release publish even if the Linux build failed and produced no
+          # artefact.
           files: |
             dist/SPOOL-windows/SPOOL-windows.zip
             dist/SPOOL-macos/SPOOL-macos.zip
             dist/SPOOL-linux/SPOOL-linux.tar.gz
+          fail_on_unmatched_files: false
           body_path: CHANGELOG.md
           draft: false
           prerelease: false
