@@ -1,0 +1,104 @@
+# =============================================================================
+# SPOOL — .gitignore
+# =============================================================================
+
+# ---- Build output -----------------------------------------------------------
+build/
+build-*/
+out/
+cmake-build-*/
+_deps/
+SPOOL_artefacts/
+*_artefacts/
+*.dir/
+juceaide/
+
+# ---- CMake intermediates ----------------------------------------------------
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+cmake_install.cmake
+install_manifest.txt
+
+# ---- Visual Studio / MSBuild -----------------------------------------------
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.sln.docstates
+*.suo
+*.user
+*.opensdf
+*.sdf
+*.ipdb
+*.iobj
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.lib
+*.obj
+*.tlog/
+
+# ---- Xcode ------------------------------------------------------------------
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+*.dSYM/
+xcuserdata/
+
+# ---- macOS / Windows / Linux junk ------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---- IDE / editor -----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+.ccls-cache/
+compile_commands.json
+
+# ---- Logs & sessions --------------------------------------------------------
+spool.log
+*.log
+session_*/
+
+# ---- JUCE generated ---------------------------------------------------------
+JuceLibraryCode/
+*Builds/
+
+# ---- Local secrets / scratch ------------------------------------------------
+.env
+.env.local
+TODO.local.md
+NOTES.local.md
+*.private.*
+
+# ---- Compiled binaries that don't belong in source -------------------------
+*.exe
+*.dll
+*.dylib
+*.so
+*.o
+*.a
+*.vst3
+*.component
+*.aax
+*.zip
+*.tar
+*.tar.gz
+
+# ---- Allow shipped assets + GitHub config + docs ---------------------------
+!assets/bg.png
+!assets/bg.jpg
+!docs/**
+!.github/

@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SPOOL — sampler / looper / field recorder</title>
+  <meta name="description" content="TP-7-inspired sampler, looper and field-recording plugin for VST3 + standalone. Free. GPL-3.0." />
+  <meta name="theme-color" content="#ff5a14" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+  <meta property="og:title" content="SPOOL — TP-7-inspired sampler plugin" />
+  <meta property="og:description" content="The handheld-feel sampler workflow as a plugin. VST3 + standalone. Free." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============================ HEADER NAV ============================ -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark">SP&middot;L</span>
+      <span class="brand-name">SPOOL</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#showcase">Showcase</a>
+      <a href="#install">Install</a>
+      <a href="#controls">Controls</a>
+      <a class="nav-cta" href="https://github.com/ksamples/spool" target="_blank" rel="noopener">GitHub &rarr;</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============================ HERO ============================ -->
+<header id="top" class="hero">
+  <div class="hero-bg" aria-hidden="true"></div>
+
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <div class="hero-eyebrow">
+        <span class="dot"></span>
+        v1.0&nbsp;&middot;&nbsp;VST3&nbsp;+&nbsp;Standalone&nbsp;&middot;&nbsp;Windows&nbsp;/&nbsp;macOS&nbsp;/&nbsp;Linux
+      </div>
+
+      <h1 class="hero-title">
+        <span class="hero-logo">SP&middot;L</span>
+        <span class="hero-wordmark">SPOOL</span>
+      </h1>
+
+      <p class="hero-tagline">
+        a sampler, looper and field recorder<br />
+        in the spirit of the <s class="strike">$1,499</s> Teenage&nbsp;Engineering&nbsp;TP&minus;7.
+      </p>
+
+      <div class="hero-price-row">
+        <div class="price-card price-tp7">
+          <div class="price-label">TP-7 hardware</div>
+          <div class="price-value">$1,499</div>
+          <div class="price-fine">USD&nbsp;&middot; portable handheld</div>
+        </div>
+        <div class="price-vs">vs</div>
+        <div class="price-card price-spool">
+          <div class="price-label">SPOOL plugin</div>
+          <div class="price-value">$0</div>
+          <div class="price-fine">free&nbsp;&middot; open source&nbsp;&middot; GPL&minus;3.0</div>
+        </div>
+      </div>
+
+      <div class="cta-row">
+        <a class="cta cta-primary" href="https://github.com/ksamples/spool/releases/latest" target="_blank" rel="noopener">
+          <span class="cta-icon">&darr;</span>
+          <span>Download&nbsp;v1.0</span>
+        </a>
+        <a class="cta cta-ghost" href="https://github.com/ksamples/spool" target="_blank" rel="noopener">
+          <span class="cta-icon">&#9733;</span>
+          <span>Star&nbsp;on&nbsp;GitHub</span>
+        </a>
+        <a class="cta cta-ghost" href="#install">
+          <span class="cta-icon">&rarr;</span>
+          <span>How&nbsp;to&nbsp;install</span>
+        </a>
+      </div>
+
+      <div class="hero-trust">
+        Built on JUCE 8 &middot; C++17 &middot; ships VST3 (Win/Linux) and AU+VST3 (macOS)
+      </div>
+    </div>
+
+    <div class="hero-art" aria-hidden="true">
+      <!-- Stylised SPOOL "device" preview rendered in pure SVG so it stays
+           crisp at any size and follows the page accent colour. -->
+      <svg class="device" viewBox="0 0 280 480" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bezel" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#dadadd" />
+            <stop offset=".5" stop-color="#aaaaae" />
+            <stop offset="1" stop-color="#6d6d72" />
+          </linearGradient>
+          <radialGradient id="reelMetal" cx=".4" cy=".35" r=".7">
+            <stop offset="0" stop-color="#cccccf" />
+            <stop offset="1" stop-color="#3a3a3e" />
+          </radialGradient>
+          <radialGradient id="reelInk" cx=".5" cy=".5" r=".5">
+            <stop offset="0" stop-color="#1a1a1e" />
+            <stop offset="1" stop-color="#050507" />
+          </radialGradient>
+          <linearGradient id="oledGlass" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#0a0a0d" />
+            <stop offset="1" stop-color="#020203" />
+          </linearGradient>
+        </defs>
+
+        <!-- chassis -->
+        <rect x="6" y="6" width="268" height="468" rx="28" fill="url(#bezel)" stroke="#54545a" />
+        <rect x="14" y="14" width="252" height="452" rx="22" fill="#aaaaad" />
+
+        <!-- OLED -->
+        <rect x="146" y="32" width="106" height="42" rx="6" fill="url(#oledGlass)" stroke="var(--accent)" stroke-opacity=".4" />
+        <text x="154" y="50" class="oled-text">SPOOL</text>
+        <text x="154" y="66" class="oled-dim">0:14 / 0:42</text>
+
+        <!-- SP-L wordmark -->
+        <text x="28" y="58" class="splwordmark">SP&middot;L</text>
+
+        <!-- big vinyl reel -->
+        <g class="reel-spin" style="transform-origin: 140px 200px;">
+          <circle cx="140" cy="200" r="92" fill="url(#reelMetal)" />
+          <circle cx="140" cy="200" r="82" fill="url(#reelInk)" />
+          <!-- grooves -->
+          <g stroke="#222" stroke-opacity=".55" fill="none">
+            <circle cx="140" cy="200" r="72" />
+            <circle cx="140" cy="200" r="62" />
+            <circle cx="140" cy="200" r="52" />
+            <circle cx="140" cy="200" r="42" />
+            <circle cx="140" cy="200" r="32" />
+          </g>
+          <circle cx="140" cy="200" r="22" fill="var(--accent)" />
+          <circle cx="140" cy="200" r="4" fill="#0a0a0d" />
+        </g>
+
+        <!-- waveform panel -->
+        <rect x="22" y="312" width="236" height="58" rx="5" fill="#16161a" />
+        <g class="wave" stroke="var(--accent)" stroke-opacity=".85" stroke-linecap="round">
+          <line x1="32" y1="341" x2="32" y2="341" />
+          <line x1="38" y1="335" x2="38" y2="347" />
+          <line x1="44" y1="324" x2="44" y2="358" />
+          <line x1="50" y1="328" x2="50" y2="354" />
+          <line x1="56" y1="332" x2="56" y2="350" />
+          <line x1="62" y1="320" x2="62" y2="362" />
+          <line x1="68" y1="325" x2="68" y2="357" />
+          <line x1="74" y1="338" x2="74" y2="344" />
+          <line x1="80" y1="328" x2="80" y2="354" />
+          <line x1="86" y1="316" x2="86" y2="366" />
+          <line x1="92" y1="322" x2="92" y2="360" />
+          <line x1="98" y1="332" x2="98" y2="350" />
+          <line x1="104" y1="324" x2="104" y2="358" />
+          <line x1="110" y1="330" x2="110" y2="352" />
+          <line x1="116" y1="320" x2="116" y2="362" />
+          <line x1="122" y1="335" x2="122" y2="347" />
+          <line x1="128" y1="325" x2="128" y2="357" />
+          <line x1="134" y1="318" x2="134" y2="364" />
+          <line x1="140" y1="332" x2="140" y2="350" />
+          <line x1="146" y1="328" x2="146" y2="354" />
+          <line x1="152" y1="322" x2="152" y2="360" />
+          <line x1="158" y1="334" x2="158" y2="348" />
+          <line x1="164" y1="319" x2="164" y2="363" />
+          <line x1="170" y1="328" x2="170" y2="354" />
+          <line x1="176" y1="336" x2="176" y2="346" />
+          <line x1="182" y1="324" x2="182" y2="358" />
+          <line x1="188" y1="332" x2="188" y2="350" />
+          <line x1="194" y1="320" x2="194" y2="362" />
+          <line x1="200" y1="328" x2="200" y2="354" />
+          <line x1="206" y1="336" x2="206" y2="346" />
+          <line x1="212" y1="332" x2="212" y2="350" />
+          <line x1="218" y1="324" x2="218" y2="358" />
+          <line x1="224" y1="338" x2="224" y2="344" />
+          <line x1="230" y1="330" x2="230" y2="352" />
+          <line x1="236" y1="334" x2="236" y2="348" />
+          <line x1="242" y1="338" x2="242" y2="344" />
+          <line x1="248" y1="341" x2="248" y2="341" />
+        </g>
+        <!-- highlight -->
+        <rect x="74" y="316" width="80" height="50" fill="var(--accent)" fill-opacity=".22" />
+        <rect x="74" y="316" width="80" height="50" fill="none" stroke="var(--accent)" stroke-opacity=".7" />
+
+        <!-- slot row -->
+        <g class="slots">
+          <rect x="22" y="384" width="24" height="22" rx="3" fill="#16161a" />
+          <rect x="50" y="384" width="24" height="22" rx="3" fill="#16161a" />
+          <rect x="78" y="384" width="24" height="22" rx="3" fill="var(--accent)" />
+          <rect x="106" y="384" width="24" height="22" rx="3" fill="#16161a" />
+          <rect x="134" y="384" width="24" height="22" rx="3" fill="var(--accent)" />
+          <rect x="162" y="384" width="24" height="22" rx="3" fill="#16161a" />
+          <rect x="190" y="384" width="24" height="22" rx="3" fill="#16161a" />
+          <rect x="218" y="384" width="24" height="22" rx="3" fill="#16161a" />
+        </g>
+
+        <!-- transport -->
+        <g class="transport">
+          <rect x="22" y="416" width="74" height="44" rx="6" fill="#16161a" />
+          <circle cx="59" cy="438" r="10" fill="#e53a3a" />
+          <rect x="103" y="416" width="74" height="44" rx="6" fill="#16161a" />
+          <polygon points="130,428 130,448 150,438" fill="#eeeeee" />
+          <rect x="184" y="416" width="74" height="44" rx="6" fill="#16161a" />
+          <rect x="212" y="430" width="18" height="16" fill="#eeeeee" />
+        </g>
+      </svg>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ FEATURES ============================ -->
+<section id="features" class="features">
+  <div class="section-head">
+    <div class="kicker">Why SPOOL</div>
+    <h2>Eight slots. Seven effects. One vinyl reel you can&nbsp;scratch.</h2>
+    <p class="lede">
+      Everything the TP-7 does for capture, looping and live performance &mdash;
+      ported into a plugin you can drop on any track. Plus features the
+      hardware can't (drag-out, host-tempo sync, 8 colour themes).
+    </p>
+  </div>
+
+  <div class="feature-grid">
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9210;</div>
+      <h3>Drag &amp; drop sampler</h3>
+      <p>Drop any WAV / AIF / FLAC / MP3 / OGG on the panel. Browse a folder with &minus;&nbsp;/&nbsp;&plus;. Eight loop slots saved&nbsp;to <kbd>1</kbd>&ndash;<kbd>8</kbd>.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9679;</div>
+      <h3>Live field recorder</h3>
+      <p>One-button capture from the channel input. Stops &rarr; auto-loops (RC-505 style). Live scrolling waveform as you record.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9166;</div>
+      <h3>Tempo-locked loops</h3>
+      <p>1/16 &middot; 1/8 &middot; 1/4 &middot; 1/2 &middot; 1B &middot; 2B size buttons. Drag-highlight any region. NUDGE wheel translates the selection live.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#10227;</div>
+      <h3>DJ scratch on the reel</h3>
+      <p>Grab the spinning vinyl with your mouse, scratch in either direction. Cartridge LP gives it real vinyl warmth, not digital artefacts.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9839;</div>
+      <h3>Three reorderable FX</h3>
+      <p>FILTER (LP/HP DJ sweep + tempo LFO), GHOST (filtered feedback delay), HAZE (six-preset reverb &mdash; VAULT/CHROME/NEST/MIST/ABYSS/AURA shimmer). Drag the knob icons to reorder the chain.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9854;</div>
+      <h3>Tempo&hairsp;&middot;&hairsp;TAP&hairsp;&middot;&hairsp;Host sync</h3>
+      <p>Internal BPM with drag&hairsp;+&hairsp;TAP. In a DAW, the host transport tempo wins automatically &mdash; effects and loop sizes follow.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#8693;</div>
+      <h3>Drag loops out</h3>
+      <p>Hold and drag the &darr; button to drop the current loop region as a WAV onto any DAW track. Effects baked in. Instant audio clip.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9776;</div>
+      <h3>Three preamp voices</h3>
+      <p>VINTAGE / FET / OPTO &mdash; 24:1 compression on both record and playback, with distinct attack, release and saturation per voice.</p>
+    </article>
+
+    <article class="feature">
+      <div class="feature-icon" aria-hidden="true">&#9728;</div>
+      <h3>Theme randomiser</h3>
+      <p>Double-click the SP&middot;L logo to randomise the accent colour. The whole panel re-tints in unison. Try it &rarr;</p>
+    </article>
+
+  </div>
+</section>
+
+<!-- ============================ SHOWCASE ============================ -->
+<section id="showcase" class="showcase">
+  <div class="section-head">
+    <div class="kicker">In action</div>
+    <h2>Designed to feel like a real piece of gear.</h2>
+  </div>
+
+  <div class="showcase-row">
+    <div class="showcase-text">
+      <h3>Brushed-metal knobs with real position notches.</h3>
+      <p>
+        Every knob is a 3D-shaded aluminium disc with a radial gradient,
+        faint concentric "brushing" rings, a recessed dark well with a
+        chrome specular highlight on the rim, and 13&nbsp;tick marks around
+        the perimeter &mdash; the one closest to your current value
+        brightens to the accent colour.
+      </p>
+      <ul class="bullet">
+        <li>Click hit-box covers the full visible knob, not just the centre</li>
+        <li>Value text inside the knob &mdash; no separate readout panel</li>
+        <li>Notch indicator line so you can read position from across the room</li>
+      </ul>
+    </div>
+    <div class="showcase-art">
+      <!-- isolated knob preview -->
+      <svg viewBox="0 0 240 240" class="knob-preview">
+        <defs>
+          <radialGradient id="kBody" cx=".35" cy=".3" r=".75">
+            <stop offset="0" stop-color="#cdcdd0" />
+            <stop offset="1" stop-color="#4a4a50" />
+          </radialGradient>
+          <radialGradient id="kWell" cx=".35" cy=".3" r=".75">
+            <stop offset="0" stop-color="#34343a" />
+            <stop offset="1" stop-color="#06060a" />
+          </radialGradient>
+        </defs>
+        <!-- well -->
+        <circle cx="120" cy="120" r="112" fill="url(#kWell)" />
+        <!-- spec rim -->
+        <path d="M 50 75 a 70 70 0 0 1 70 -55" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="1.5" stroke-linecap="round"/>
+        <!-- body -->
+        <circle cx="120" cy="120" r="100" fill="url(#kBody)" />
+        <!-- brushing -->
+        <g fill="none" stroke="#a8a8ae" stroke-opacity=".10">
+          <circle cx="120" cy="120" r="22" />
+          <circle cx="120" cy="120" r="36" />
+          <circle cx="120" cy="120" r="50" />
+          <circle cx="120" cy="120" r="64" />
+          <circle cx="120" cy="120" r="78" />
+        </g>
+        <!-- ticks -->
+        <g class="knob-ticks">
+          <!-- 13 ticks 0..360 deg arc; computed for 270 deg sweep -->
+        </g>
+        <!-- notch -->
+        <line x1="120" y1="120" x2="172" y2="68" stroke="#1a1a1e" stroke-width="4" stroke-linecap="round"/>
+        <line x1="120" y1="120" x2="172" y2="68" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round"/>
+        <!-- value text -->
+        <text x="120" y="128" text-anchor="middle" class="knob-value">68</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="showcase-row reverse">
+    <div class="showcase-text">
+      <h3>OLED tempo display &amp; tap tempo.</h3>
+      <p>
+        Neon-glow BPM readout next to a dedicated TAP button.
+        Drag it to fine&minus;tune; tap it in time to lock onto an
+        unknown sample's tempo. Per-slot BPM is stored, so each
+        of your eight slots can have its own groove.
+      </p>
+      <ul class="bullet">
+        <li>40&ndash;240 BPM range, 0.1 BPM precision with Shift+drag</li>
+        <li>Tempo-synced FILTER LFO (1/2 down to 1/128 of a beat)</li>
+        <li>Auto-overrides to your DAW's transport tempo in plugin mode</li>
+      </ul>
+    </div>
+    <div class="showcase-art">
+      <div class="oled-window">
+        <div class="oled-glow">120</div>
+      </div>
+      <div class="tap-button">TAP</div>
+    </div>
+  </div>
+
+  <div class="showcase-row">
+    <div class="showcase-text">
+      <h3>Drag loops directly onto DAW tracks.</h3>
+      <p>
+        Press and drag the &darr; export button to drop the current loop region
+        out as a WAV file &mdash; lands as an audio clip wherever you drop it.
+        FILTER, GHOST, HAZE and TAPE are all baked into the file.
+      </p>
+      <ul class="bullet">
+        <li>24-bit WAV at the sample's native rate</li>
+        <li>Honours your current loop region (drag-highlight, size button, or whole sample)</li>
+        <li>Works into Ableton tracks, Explorer, Finder, anything that accepts file drops</li>
+      </ul>
+    </div>
+    <div class="showcase-art">
+      <div class="drag-demo">
+        <div class="drag-source">
+          <span>&darr;</span>
+        </div>
+        <div class="drag-arrow"></div>
+        <div class="drag-target">
+          <div class="track-line"></div>
+          <div class="track-clip">loop_spool.wav</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ INSTALL ============================ -->
+<section id="install" class="install">
+  <div class="section-head">
+    <div class="kicker">Get it</div>
+    <h2>Install in 60 seconds.</h2>
+  </div>
+
+  <div class="install-cards">
+
+    <article class="install-card">
+      <div class="install-card-head">
+        <span class="install-badge">VST3</span>
+        <h3>For DAW use</h3>
+      </div>
+      <p>Ableton, FL Studio, Reaper, Bitwig, Cubase, Studio One, anything VST3-compatible.</p>
+
+      <div class="install-steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <div>
+            <strong>Grab the build</strong>
+            <p>Download <code>SPOOL.vst3</code> from the latest <a href="https://github.com/ksamples/spool/releases/latest" target="_blank" rel="noopener">GitHub release</a>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <div>
+            <strong>Drop it in your VST3 folder</strong>
+            <pre class="copy-block" data-copy="C:\Program Files\Common Files\VST3\"><code>C:\Program Files\Common Files\VST3\</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
+            <pre class="copy-block" data-copy="~/Library/Audio/Plug-Ins/VST3/"><code>~/Library/Audio/Plug-Ins/VST3/</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
+            <pre class="copy-block" data-copy="~/.vst3/"><code>~/.vst3/</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <div>
+            <strong>Rescan plugins</strong>
+            <p>In Ableton: <em>Preferences &rsaquo; Plug-Ins &rsaquo; Rescan</em>. SPOOL appears under <code>ksamples</code>. Drop on an audio track.</p>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="install-card">
+      <div class="install-card-head">
+        <span class="install-badge alt">STANDALONE</span>
+        <h3>For desktop use</h3>
+      </div>
+      <p>No DAW needed. Runs as its own app. Captures from the system audio input.</p>
+
+      <div class="install-steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <div>
+            <strong>Grab the executable</strong>
+            <p>Download <code>SPOOL.exe</code> (Windows) or <code>SPOOL.app</code> (macOS) from the <a href="https://github.com/ksamples/spool/releases/latest" target="_blank" rel="noopener">latest release</a>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <div>
+            <strong>Run it</strong>
+            <p>Double-click. First launch: the standalone window's <em>Options</em> menu lets you pick your audio device and input channel.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <div>
+            <strong>Drop a sample or hit REC</strong>
+            <p>Drag a WAV onto the panel, or arm REC and capture from your input. Save to slots <kbd>1</kbd>&ndash;<kbd>8</kbd> with mouse-click.</p>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="install-card">
+      <div class="install-card-head">
+        <span class="install-badge build">BUILD</span>
+        <h3>From source</h3>
+      </div>
+      <p>CMake 3.22+, C++17 toolchain (MSVC, Xcode, GCC, Clang). JUCE 8.0.4 is pulled in via FetchContent.</p>
+
+      <div class="install-steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <div>
+            <strong>Clone</strong>
+            <pre class="copy-block" data-copy="git clone https://github.com/ksamples/spool.git"><code>git clone https://github.com/ksamples/spool.git</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <div>
+            <strong>Configure &amp; build</strong>
+            <pre class="copy-block" data-copy="cmake -S . -B build
+cmake --build build --config Release"><code>cmake -S . -B build
+cmake --build build --config Release</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <div>
+            <strong>Find the artefacts</strong>
+            <pre class="copy-block" data-copy="build/SPOOL_artefacts/Release/"><code>build/SPOOL_artefacts/Release/</code><button class="copy-btn" type="button" aria-label="Copy">copy</button></pre>
+            <p>Contains <code>Standalone/</code>, <code>VST3/</code>, and <code>AU/</code> on macOS.</p>
+          </div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+</section>
+
+<!-- ============================ CONTROLS ============================ -->
+<section id="controls" class="controls">
+  <div class="section-head">
+    <div class="kicker">Cheat sheet</div>
+    <h2>Every control.</h2>
+  </div>
+
+  <div class="control-grid">
+    <div class="control-block">
+      <h3>Transport</h3>
+      <dl>
+        <dt><span class="key">&#9210; REC</span></dt><dd>Capture input. Auto-loops on stop.</dd>
+        <dt><span class="key">&#9654; PLAY</span> / <span class="key">Space</span></dt><dd>Toggle playback.</dd>
+        <dt><span class="key">&#9632; STOP</span></dt><dd>Stop and rewind.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>Loop</h3>
+      <dl>
+        <dt>Drag the waveform</dt><dd>Highlight a custom loop region.</dd>
+        <dt>Double-click waveform</dt><dd>Set LOOP anchor at click position.</dd>
+        <dt>Size buttons</dt><dd>Lock loop length in beats at current BPM.</dd>
+        <dt>NUDGE slider</dt><dd>Translate the loop region. Release to commit.</dd>
+        <dt>Cutoff button</dt><dd>&minus;12 / &minus;24 / BKWL fade slope at wrap.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>Tempo</h3>
+      <dl>
+        <dt>BPM window</dt><dd>Drag vertically. Shift = fine.</dd>
+        <dt>TAP</dt><dd>Tap 2&ndash;4 times in rhythm to lock BPM.</dd>
+        <dt>In a DAW</dt><dd>Host transport tempo auto-overrides.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>Slots</h3>
+      <dl>
+        <dt>Click 1&ndash;8</dt><dd>Save current loop (with all effect state) or load if filled.</dd>
+        <dt>Right-click 1&ndash;8</dt><dd>Clear slot.</dd>
+        <dt>Keys <kbd>1</kbd>&ndash;<kbd>8</kbd></dt><dd>Load only (never overwrites).</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>FILTER</h3>
+      <dl>
+        <dt>Knob</dt><dd>0&hairsp;= full LP, 0.5&hairsp;= bypass, 1&hairsp;= full HP.</dd>
+        <dt>Q</dt><dd>LO / MD / HI resonance.</dd>
+        <dt>RATE</dt><dd>OFF / 1/2 / 1/4 / &hellip; / 1/128 LFO.</dd>
+        <dt>RANGE</dt><dd>SM / MD / LG LFO depth.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>GHOST &amp; HAZE</h3>
+      <dl>
+        <dt>GHOST knob</dt><dd>Filtered feedback delay amount.</dd>
+        <dt>GHOST time</dt><dd>1/16 / 1/8 / 1/4 delay.</dd>
+        <dt>HAZE knob</dt><dd>Reverb wet/dry.</dd>
+        <dt>HAZE preset</dt><dd>VAULT &middot; CHROME &middot; NEST &middot; MIST &middot; ABYSS &middot; AURA</dd>
+        <dt>FREEZE</dt><dd>Lock the reverb tail infinite.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>SPEED &amp; TAPE</h3>
+      <dl>
+        <dt>SPEED knob</dt><dd>Varispeed 0.5&times;&hairsp;&hellip;&hairsp;2&times;. Slowing adds tape grime.</dd>
+        <dt>TAPE knob</dt><dd>Saturation wet/dry.</dd>
+        <dt>Machine LED</dt><dd>SAT (warm) / WOW (mod) / LO&minus;FI (crush).</dd>
+        <dt>Scratch the reel</dt><dd>Grab the vinyl and drag to scrub.</dd>
+      </dl>
+    </div>
+
+    <div class="control-block">
+      <h3>Misc</h3>
+      <dl>
+        <dt>Drag &darr;</dt><dd>Drop loop as WAV onto a DAW track.</dd>
+        <dt>Ctrl + scroll waveform</dt><dd>Zoom in / out on the sample.</dd>
+        <dt>Double-click SP&middot;L</dt><dd>Randomise the accent colour theme.</dd>
+      </dl>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================ FOOTER ============================ -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div class="footer-mark">SP&middot;L</div>
+      <div>
+        <div class="footer-name">SPOOL</div>
+        <div class="footer-tag">A sampler that feels like gear.</div>
+      </div>
+    </div>
+
+    <div class="footer-links">
+      <a href="https://github.com/ksamples/spool" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/ksamples/spool/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/ksamples/spool/issues" target="_blank" rel="noopener">Report a bug</a>
+      <a href="https://github.com/ksamples/spool/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+    </div>
+
+    <div class="footer-fine">
+      Built on <a href="https://juce.com" target="_blank" rel="noopener">JUCE</a>&nbsp;&middot; GPL&minus;3.0&nbsp;&middot; not affiliated with Teenage Engineering.<br />
+      &copy; 2026 ksamples.
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
