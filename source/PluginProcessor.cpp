@@ -717,8 +717,12 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    // Transport fade target (1.0 when sample playing, 0.0 when stopped).
-    const float targetPlayGain = playing.load() ? 1.0f : 0.0f;
+    // Transport fade target (1.0 when audible, 0.0 when stopped). Scratching
+    // counts as audible too — grabbing the reel and dragging should be heard
+    // immediately even if the PLAY-button transport isn't running (real
+    // turntable behaviour). Without this the gain envelope would fade
+    // scratching to silence whenever PLAY was off.
+    const float targetPlayGain = (playing.load() || scratchActive.load()) ? 1.0f : 0.0f;
 
     // Resolve LOOP-cutoff fade length (in OUTPUT samples).
     const int   cutoffMode = loopCutoffMode.load();
@@ -743,8 +747,14 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const bool haveSample = local != nullptr
                             && local->buffer.getNumSamples()  > 0
                             && local->buffer.getNumChannels() > 0;
+    // Sample-read block must run whenever ANY audio source is active. That
+    // includes scratching even when PLAY transport is off — otherwise
+    // grabbing the reel with PLAY off skips the whole sample-read block
+    // and the user hears nothing.
     const bool samplePlaying = haveSample
-                            && (playing.load() || playGainSmoothed > 1e-4f);
+                            && (playing.load()
+                                || playGainSmoothed > 1e-4f
+                                || scratchActive.load());
 
     // PASSTHROUGH gate. In a DAW (plugin mode) the input buffer carries
     // host audio that we want to feed through the effect chain — that's the
@@ -788,14 +798,61 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                   : 1.0;
     const float  speedAmt   = playbackSpeed.load();
     const bool   scratching = scratchActive.load();
-    const double targetRate = scratching
-                                ? (double) scratchRate.load() * pitchRatio
-                                : pitchRatio * (double) speedAmt;
+
+    // Normal playback rate. While scratching, the per-sample loop will
+    // bypass this entirely and lerp pos toward desiredPos instead, so
+    // targetRate here only matters for non-scratching playback.
+    const double targetRate = pitchRatio * (double) speedAmt;
+
+    // SCRUB-style position tracking: when scratching, the desired playhead
+    // is "anchor + cumulative platter angle × samples-per-radian". The per-
+    // sample loop drags pos toward desiredPos directly. That gives the
+    // user a waveform-scrubber feel — mouse holds, audio holds; mouse
+    // moves, audio plays from that point at the speed of the mouse.
+    double desiredPos = 0.0;
+    double samplesPerRadian = 1.0;
+    if (scratching)
+    {
+        float currentAccum = scratchLastReadAngleRad;
+        {
+            const juce::SpinLock::ScopedTryLockType tryLock (scratchAccumLock);
+            if (tryLock.isLocked()) currentAccum = scratchAccumAngleRad;
+        }
+        // First scratched block: snapshot the current playback position as
+        // the anchor so the scrub starts from where the audio actually was,
+        // not jumping to wherever stale state left things. Also snap the
+        // gain envelope to full so the scratch is audible IMMEDIATELY
+        // instead of fading in over the LOOP-cutoff fade window (could
+        // mute the first ~30 ms of a short scratch otherwise).
+        if (! prevScratchActive)
+        {
+            scratchAnchorPos        = pos;
+            scratchLastReadAngleRad = currentAccum;
+            playGainSmoothed        = 1.0f;
+        }
+        // Convert: one full rotation = 1/baseRotPerSec seconds of audio at
+        // 1× playback, so radians × (sourceSr / (baseRotPerSec × 2π)) = samples.
+        samplesPerRadian = (double) (local->sourceSampleRate > 0.0
+                                     ? local->sourceSampleRate
+                                     : hostSampleRate)
+                             / ((double) kScratchBaseRotPerSec
+                                 * juce::MathConstants<double>::twoPi);
+        desiredPos = scratchAnchorPos + (double) currentAccum * samplesPerRadian;
+    }
 
     // Per-sample rate smoothing — kills the zipper noise/clicks that come
-    // from snapping the rate to each new mouse-event sample. ~3ms time
-    // constant feels like a real cartridge's mechanical inertia.
+    // from snapping the rate to each new mouse-event sample. Used for
+    // normal (non-scratch) playback. ~3 ms cartridge-inertia feel.
     const double rateSmoothCoef = 1.0 - std::exp (-1.0 / (0.003 * hostSampleRate));
+    // While scratching, the per-sample loop instead pulls pos toward
+    // desiredPos with a one-pole filter. The time constant has to be
+    // LONGER than the typical mouse-event interval (~16 ms at 60 Hz
+    // polling) — otherwise pos catches up in 3 ms then sits silent for
+    // 13 ms, producing "burst-silence-burst" instead of continuous
+    // scrubbed audio. 25 ms TC keeps pos always chasing the moving
+    // target so the audio stays smooth, while still letting pos rest
+    // quickly enough after the user releases.
+    const double posLerpCoef    = 1.0 - std::exp (-1.0 / (0.025 * hostSampleRate));
     // Snap immediately when scratch ends (returning to SPEED knob), otherwise
     // glide for natural feel.
     if (! scratching && std::abs (scratchRateSmoothed - targetRate) > 0.5)
@@ -814,13 +871,37 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float  bitLevels = std::pow (2.0f, bitDepth) * 0.5f; // quantisation step
     const int    holdLen   = (int) (degAmount * 7.0f);         // hold sample for N extra frames
 
-    // Cartridge LP — gentle 6kHz one-pole, active only while scratching.
-    // Real DJ cartridges have HF rolloff and mechanical resonance; this
-    // softens aliasing from fast scratching and gives it a "vinyl" warmth
-    // instead of the harsh digital edge of nearest-rate playback.
-    const float scratchLpCoef = scratching
-        ? (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 6000.0 / hostSampleRate))
-        : 1.0f;
+    // Cartridge LP — dynamic one-pole, only active while scratching. Cutoff
+    // tracks rate magnitude so slow drags sound dark / dragged (~3 kHz) and
+    // fast scratches stay bright (~10 kHz). Reverse playback gets a touch
+    // more rolloff because the cartridge isn't optimised for it.
+    float scratchLpCoef = 1.0f;
+    if (scratching)
+    {
+        const float absRate = (float) std::abs (scratchRateSmoothed);
+        float       lpHz    = juce::jlimit (2500.0f, 10000.0f, 2500.0f + absRate * 5500.0f);
+        if (scratchRateSmoothed < 0.0) lpHz *= 0.78f;
+        scratchLpCoef = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi
+                                                 * (double) lpHz / juce::jmax (1.0, hostSampleRate)));
+    }
+
+    // Direction-change detection: when the smoothed rate flips sign, kick
+    // a brief noise envelope — the "tk tk" of the needle scrubbing across
+    // the groove. Also feed an onset thump when scratching first starts.
+    if (scratching)
+    {
+        const float sign = scratchRateSmoothed >  0.001 ? 1.0f
+                         : scratchRateSmoothed < -0.001 ? -1.0f : 0.0f;
+        if (sign != 0.0f && prevScratchSign != 0.0f && sign != prevScratchSign)
+            scratchZipEnv = 1.0f;
+        if (sign != 0.0f) prevScratchSign = sign;
+        if (! prevScratchActive) scratchOnsetEnv = 1.0f;     // needle-drop pulse
+    }
+    else
+    {
+        prevScratchSign = 0.0f;
+    }
+    prevScratchActive = scratching;
 
     // ---- LOOP setup: window of length N, anchored at engagement point.
     // Loop length is computed in SOURCE samples so the LOOP duration is wall-clock-
@@ -890,15 +971,35 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     for (int i = 0; i < numSamples; ++i)
     {
-        // Reverse-playback wrap (scratching backwards past 0).
+        // Reverse-playback wrap (scratching backwards past 0). While the
+        // user is grabbing the reel we ALWAYS wrap the position, regardless
+        // of the LOOP-button setting — a real turntable doesn't care, and
+        // without the wrap the playhead would get stuck at sample 0 and
+        // glitch (re-clamping to 0 every iteration). When NOT scratching,
+        // the LOOP button decides whether reverse playback wraps or stops.
+        // When wrapping during scratch we also shift scratchAnchorPos by
+        // the same amount so desiredPos stays aligned with the new pos —
+        // otherwise the lerp would immediately drag pos back through the
+        // wrap point and spin forever.
         if (pos < 0.0)
         {
+            const double oldPos = pos;
             if (effectiveAnchor >= 0.0)
                 pos = loopEnd - 1.0;                            // bounce to loop end
-            else if (looping.load())
+            else if (looping.load() || scratching)
+            {
                 pos = (double) srcSamples + std::fmod (pos, (double) srcSamples);
+                if (pos >= (double) srcSamples) pos -= (double) srcSamples;
+                if (pos < 0.0)                  pos = (double) srcSamples - 1.0;
+            }
             else
                 pos = 0.0;
+            if (scratching)
+            {
+                const double shift = pos - oldPos;
+                scratchAnchorPos += shift;
+                desiredPos       += shift;
+            }
         }
 
         // Loop window wrap (takes precedence over full-sample wrap).
@@ -906,14 +1007,30 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         {
             if (pos >= loopEnd)
             {
+                const double oldPos = pos;
                 pos = effectiveAnchor;
-                loopWrapped.store (true); // LED flash on each loop trigger
+                loopWrapped.store (true);
+                if (scratching)
+                {
+                    const double shift = pos - oldPos;
+                    scratchAnchorPos += shift;
+                    desiredPos       += shift;
+                }
             }
         }
         else if (pos >= (double) srcSamples)
         {
-            if (looping.load())
+            if (looping.load() || scratching)
+            {
+                const double oldPos = pos;
                 pos = std::fmod (pos, (double) srcSamples);
+                if (scratching)
+                {
+                    const double shift = pos - oldPos;
+                    scratchAnchorPos += shift;
+                    desiredPos       += shift;
+                }
+            }
             else
             {
                 playing.store (false);
@@ -944,10 +1061,33 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         const float totalGain = playGainSmoothed * loopGain * sampleGain.load();
 
-        // ---- Linear-interpolated read at fractional source position --------
+        // ---- Sample read at fractional source position --------------------
+        // Normal playback: linear interp (fast, clean when rate ≈ 1×).
+        // While scratching: cubic Hermite (Catmull-Rom) on 4 source samples
+        // — gives smoother HF content under heavy rate changes, killing the
+        // grainy "stepped" sound linear interp produces below 1× and during
+        // direction changes. The extra ~3 multiplies/adds per channel are
+        // cheap and the audible improvement is significant.
         const int    i0   = (int) pos;
         const int    i1   = juce::jmin (i0 + 1, srcSamples - 1);
         const float  frac = (float) (pos - (double) i0);
+        const int    im1  = juce::jmax (0, i0 - 1);
+        const int    i2   = juce::jmin (srcSamples - 1, i1 + 1);
+
+        // Stylus friction noise + direction-change zip — mono so all channels
+        // share the same noise burst (reads as a real needle, not stereo hiss).
+        float scratchNoise = 0.0f;
+        if (scratching)
+        {
+            const float absRate = (float) std::abs (scratchRateSmoothed);
+            const float frictionLevel = juce::jmin (1.0f, absRate * 0.55f) * 0.018f;
+            const float zipLevel      = scratchZipEnv * 0.10f;
+            const float n             = (scratchNoiseRng.nextFloat() - 0.5f) * 2.0f;
+            scratchNoise = n * (frictionLevel + zipLevel);
+            // Decay envelopes — zip ~30ms, onset ~80ms.
+            scratchZipEnv   *= 0.94f;
+            scratchOnsetEnv *= 0.985f;
+        }
 
         // Sample-rate reduction: if we're still holding a previous sample, just
         // re-emit it. Otherwise read fresh, optionally bit-crush, then refresh
@@ -966,18 +1106,40 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             for (int ch = 0; ch < chMax; ++ch)
             {
                 const int srcCh = ch % juce::jmax (1, srcChannels);
-                const float s0 = src.getSample (srcCh, i0);
-                const float s1 = src.getSample (srcCh, i1);
-                float interp = s0 + (s1 - s0) * frac;
+                float interp;
+                if (scratching)
+                {
+                    // 4-point Hermite (Catmull-Rom) — smooth HF under rate changes.
+                    const float sm1 = src.getSample (srcCh, im1);
+                    const float s0  = src.getSample (srcCh, i0);
+                    const float s1  = src.getSample (srcCh, i1);
+                    const float s2  = src.getSample (srcCh, i2);
+                    const float a = 0.5f * (-sm1 + 3.0f * s0 - 3.0f * s1 + s2);
+                    const float b = sm1 - 2.5f * s0 + 2.0f * s1 - 0.5f * s2;
+                    const float c = 0.5f * (-sm1 + s1);
+                    interp = ((a * frac + b) * frac + c) * frac + s0;
+                }
+                else
+                {
+                    const float s0 = src.getSample (srcCh, i0);
+                    const float s1 = src.getSample (srcCh, i1);
+                    interp = s0 + (s1 - s0) * frac;
+                }
 
                 if (doDegrade)
                     interp = std::round (interp * bitLevels) / bitLevels; // bit-crush
 
-                // Cartridge LP during scratch — softens aliasing into vinyl warmth.
+                // Cartridge LP during scratch — softens aliasing into vinyl
+                // warmth and tracks rate magnitude (slow drag = darker).
                 if (scratching)
                 {
+                    interp += scratchNoise;                      // friction + zip
                     scratchLpState[ch] += scratchLpCoef * (interp - scratchLpState[ch]);
                     interp = scratchLpState[ch];
+                    // Needle-drop bass thump: subtle low-end boost via DC
+                    // bias decaying out over the onset envelope. Sounds like
+                    // weight settling on the platter for the first ~80 ms.
+                    interp += scratchOnsetEnv * 0.05f;
                 }
 
                 srrHold[ch] = interp;
@@ -987,10 +1149,27 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 srrCounter = holdLen;
         }
 
-        // Smooth toward the target rate so mouse jitter / event quantisation
-        // doesn't translate directly into audible chirps.
-        scratchRateSmoothed += (targetRate - scratchRateSmoothed) * rateSmoothCoef;
-        pos += scratchRateSmoothed;
+        if (scratching)
+        {
+            // SCRUB lerp: pull pos toward desiredPos with a tight one-pole
+            // filter. Clamp the per-sample movement so a giant block-
+            // boundary jump (huge mouse flick) can't push pos arbitrarily
+            // far in one sample. Continuous motion → continuous audio;
+            // mouse stops → pos arrives at desired and holds (silence).
+            const double rawStep = (desiredPos - pos) * posLerpCoef;
+            const double step    = juce::jlimit (-32.0, 32.0, rawStep);
+            pos += step;
+            // Keep scratchRateSmoothed in sync so the on-release snap-back
+            // has a sane starting value (uses recent per-sample motion).
+            scratchRateSmoothed = step;
+        }
+        else
+        {
+            // Normal playback: smooth toward the target rate so mouse jitter
+            // / event quantisation doesn't translate into audible chirps.
+            scratchRateSmoothed += (targetRate - scratchRateSmoothed) * rateSmoothCoef;
+            pos += scratchRateSmoothed;
+        }
     }
 
     playPosition.store (pos);
@@ -1123,6 +1302,29 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 v.pos += v.rate * pitchRatio * bendFactor;
             }
         }
+
+        // Publish the position of the most-recently-triggered active voice
+        // so the editor's waveform playhead can follow MIDI playback when
+        // the PLAY-button transport isn't running. Picks the voice with the
+        // highest ageCounter (= most recently triggered / arp-fired) and
+        // grabs its current source-sample read position.
+        const SamplerVoice* latest = nullptr;
+        uint64_t newestAge = 0;
+        for (const auto& v : midiVoices)
+        {
+            if (v.stage != VoiceStage::Off && v.ageCounter >= newestAge)
+            {
+                latest    = &v;
+                newestAge = v.ageCounter;
+            }
+        }
+        midiPlayheadPos.store (latest != nullptr ? latest->pos : -1.0);
+    }
+    else
+    {
+        // No active voices — clear the MIDI playhead so the waveform falls
+        // back to its idle state (or transport position, if PLAY is on).
+        midiPlayheadPos.store (-1.0);
     }
 
     // ---- OUTPUT comp chain: apply the SAME preamp to playback so the INPUT
@@ -1637,6 +1839,33 @@ void SpoolAudioProcessor::seekNormalised (float norm) noexcept
     playPosition.store (clamped * (double) local->buffer.getNumSamples());
 }
 
+void SpoolAudioProcessor::setScratching (bool on) noexcept
+{
+    // Zero the angular accumulator at every fresh contact so the audio
+    // thread starts from a known baseline (no spurious delta carried over
+    // from the previous scratch session).
+    if (on)
+    {
+        const juce::SpinLock::ScopedLockType lock (scratchAccumLock);
+        scratchAccumAngleRad = 0.0f;
+    }
+    scratchActive.store (on);
+}
+
+void SpoolAudioProcessor::pushScratchAngleDelta (float deltaRadians) noexcept
+{
+    if (! std::isfinite (deltaRadians)) return;
+    // Clamp per-event delta so a single huge jump can't push the
+    // accumulator far enough to overflow per-block rate clamps further
+    // down. ±2π per event = up to one full rotation in a single mouse
+    // sample, which is already a violent flick.
+    const float clamped = juce::jlimit (-juce::MathConstants<float>::twoPi,
+                                         juce::MathConstants<float>::twoPi,
+                                         deltaRadians);
+    const juce::SpinLock::ScopedLockType lock (scratchAccumLock);
+    scratchAccumAngleRad += clamped;
+}
+
 void SpoolAudioProcessor::setLoopAnchorFromNormalised (float norm) noexcept
 {
     Sample::Ptr local;
@@ -1901,6 +2130,23 @@ void SpoolAudioProcessor::loadPrevInFolder()
     loadFile (folderFiles.getReference (folderIndex));
 }
 
+double SpoolAudioProcessor::getPlayPositionSeconds() const noexcept
+{
+    Sample::Ptr local;
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        local = currentSample;
+    }
+    if (local == nullptr || local->buffer.getNumSamples() == 0)
+        return 0.0;
+    const double sr = local->sourceSampleRate > 0.0 ? local->sourceSampleRate : hostSampleRate;
+    if (sr <= 0.0) return 0.0;
+    const double midi = midiPlayheadPos.load();
+    const double pos  = playing.load()        ? playPosition.load()
+                      : (midi >= 0.0          ? midi : playPosition.load());
+    return pos / sr;
+}
+
 float SpoolAudioProcessor::getNormalisedPosition() const noexcept
 {
     Sample::Ptr local;
@@ -1911,8 +2157,19 @@ float SpoolAudioProcessor::getNormalisedPosition() const noexcept
     if (local == nullptr || local->buffer.getNumSamples() == 0)
         return 0.0f;
 
-    return juce::jlimit (0.0f, 1.0f,
-                         (float) playPosition.load() / (float) local->buffer.getNumSamples());
+    const auto totalSamples = (double) local->buffer.getNumSamples();
+
+    // If the PLAY-button transport is running, the playhead follows that.
+    // Otherwise, if a MIDI voice is currently sounding, surface ITS read
+    // position so the waveform marker tracks keyboard / arp playback too.
+    // (Without this fallback the playhead just sits frozen even though MIDI
+    //  is actively scrubbing through the sample.)
+    const bool transportRunning = playing.load();
+    const double midiPos = midiPlayheadPos.load();
+    double pos = transportRunning ? playPosition.load()
+                                  : (midiPos >= 0.0 ? midiPos : playPosition.load());
+
+    return juce::jlimit (0.0f, 1.0f, (float) (pos / totalSamples));
 }
 
 double SpoolAudioProcessor::getDurationSeconds() const noexcept

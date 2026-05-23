@@ -76,8 +76,24 @@ public:
     bool isLooping() const noexcept            { return looping.load(); }
 
     // 0..1 across the loaded sample, regardless of host sample rate.
+    // When the PLAY transport is off but MIDI voices are sounding, this
+    // tracks the most-recently-triggered voice so the waveform playhead
+    // follows keyboard / arp playback.
     float getNormalisedPosition() const noexcept;
     double getDurationSeconds() const noexcept;
+
+    // Current playback position expressed in SECONDS within the source
+    // sample (i.e. playPositionSamples / sourceSampleRate). Used by the
+    // editor to drive the vinyl-reel rotation: at the base 33⅓-style
+    // 0.55 rotations/sec, the wheel angle = posSec × baseRot × 2π so the
+    // visual angle always reflects the actual audio position. Locks the
+    // reel-indicator to the audio so scratching stays accurate.
+    double getPlayPositionSeconds() const noexcept;
+
+    // True while any MIDI voice is actively sounding (Attack/Sustain/Release).
+    // The editor uses this so the playhead marker stays visible during
+    // keyboard-only playback (no PLAY transport).
+    bool isMidiPlaying() const noexcept { return midiPlayheadPos.load() >= 0.0; }
 
     // Jump to a 0..1 normalised position in the sample.
     void seekNormalised (float norm) noexcept;
@@ -139,16 +155,26 @@ public:
     float getSampleGain() const noexcept   { return sampleGain.load(); }
 
     // --- DJ scratch — drag the vinyl wheel to scrub forward/backward -------
-    // When scratchActive is true, the playback RATE is taken from scratchRate
-    // instead of the SPEED knob. Negative rate = reverse playback. Setting
-    // scratchActive=false returns control to the SPEED knob.
-    void setScratching (bool on)        noexcept { scratchActive.store (on); }
+    // Position-based (real-turntable behaviour): the UI pushes raw angular
+    // deltas every mouseDrag event, the audio thread reads the accumulated
+    // angle each block, computes the source-sample delta, and distributes
+    // it over the block as a per-sample rate. Mouse stops → audio stops;
+    // slow reverse drag → slow reverse playback; flick → fast scratch.
+    //
+    // The older velocity-based setScratchRate path is kept as a fallback
+    // for callers that have a fixed rate to dial in (currently nothing in
+    // SPOOL uses it after the position-based switch, but the API is stable).
+    static constexpr float kScratchBaseRotPerSec = 0.55f;  // matches reel spin
+    void setScratching (bool on) noexcept;
     void setScratchRate (float rate)    noexcept
     {
         // Clamp aggressively — a fast mouse-flick can produce huge angular
         // velocities and we don't want pos to overflow on the audio thread.
         scratchRate.store (std::isfinite (rate) ? juce::jlimit (-16.0f, 16.0f, rate) : 0.0f);
     }
+    // Push a small angular-motion delta (radians) accumulated from a single
+    // mouseDrag event. Thread-safe; called from the UI thread only.
+    void pushScratchAngleDelta (float deltaRadians) noexcept;
     bool isScratching() const           noexcept { return scratchActive.load(); }
 
     // --- FILTER: DJ-style LP/HP sweep (0=LP, 0.5=bypass, 1=HP) -------------
@@ -454,10 +480,37 @@ private:
     // DJ scratch state.
     std::atomic<bool>    scratchActive   { false };
     std::atomic<float>   scratchRate     { 0.0f };
+    // Position-based accumulator (radians of platter motion since last
+    // mouseDown). UI thread pushes deltas under scratchAccumLock; audio
+    // thread snapshots the value once per block and tracks its own
+    // lastReadAngle to compute the block's delta.
+    juce::SpinLock       scratchAccumLock;
+    float                scratchAccumAngleRad    { 0.0f };
+    float                scratchLastReadAngleRad { 0.0f };
+    // Anchor of the playback position at the instant the user clicked the
+    // reel. While scratching, the desired position is anchor + accumAngle ×
+    // samples-per-radian; the audio thread lerps the actual pos toward
+    // that desired value per sample. Acts like a waveform scrubber — the
+    // platter angle IS the cursor position, audio follows directly. No
+    // rate-burst chop from mouse-poll vs audio-block mismatch.
+    double               scratchAnchorPos { 0.0 };
     // Audio-thread-only: smoothed rate (lerps toward target per sample to
     // kill zipper noise) + per-channel 1-pole LP state for cartridge warmth.
     double               scratchRateSmoothed { 0.0 };
     float                scratchLpState[kMaxFilterChannels] {};
+    // Realistic-scratch state:
+    //   - scratchNoiseRng: mono noise source for stylus friction + zip burst.
+    //   - scratchZipEnv: decaying envelope kicked when rate flips sign
+    //     (direction reversal = needle scrub "tk").
+    //   - prevScratchSign: tracks +/-/0 to detect those reversals.
+    //   - scratchOnsetEnv: brief bass-thump envelope on first contact (when
+    //     the user grabs the reel) to simulate needle-drop weight.
+    //   - prevScratchActive: edge-detect for the onset envelope.
+    juce::Random         scratchNoiseRng;
+    float                scratchZipEnv        { 0.0f };
+    float                prevScratchSign      { 0.0f };
+    float                scratchOnsetEnv      { 0.0f };
+    bool                 prevScratchActive    { false };
 
     // ---- MIDI sampler ------------------------------------------------------
     // Polyphonic voice manager — incoming MIDI Note-On allocates a voice
@@ -497,6 +550,10 @@ private:
     // adding a second hardware-style control to the strip.
     std::atomic<float>          midiPitchBendSemis { 0.0f };
     std::atomic<float>          midiModWheel       { 0.0f };
+    // Read position (source samples) of the most-recently-triggered active
+    // MIDI voice. Surfaced so the editor's waveform playhead can track MIDI
+    // playback when the PLAY-button transport isn't running. -1 = no voice.
+    std::atomic<double>         midiPlayheadPos    { -1.0 };
     // Audio-thread-only tremolo phase, advanced per sample when mod wheel
     // is non-zero.
     double                      midiTremoloPhase   { 0.0 };

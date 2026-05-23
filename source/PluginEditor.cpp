@@ -300,30 +300,28 @@ void TapeReelComponent::mouseDown (const juce::MouseEvent& e)
     scratching        = true;
     lastMouseAngle    = angleFromMouse (e);
     lastScratchTimeMs = juce::Time::getMillisecondCounterHiRes();
+    // onScratchStart is the ONE place that resets the angular accumulator
+    // on the processor. Without firing it here, just clicking the wheel
+    // doesn't stop the audio (hand-on-platter feel) and the wheel doesn't
+    // engage at all during PLAY-transport playback unless you nudge it.
+    if (onScratchStart) onScratchStart();
 }
 
 void TapeReelComponent::mouseDrag (const juce::MouseEvent& e)
 {
     if (! scratching) return;
-    const float newAngle  = angleFromMouse (e);
-    const float deltaAng  = wrapPi (newAngle - lastMouseAngle);
-    angle += deltaAng;
-    repaint();
-
-    const double now = juce::Time::getMillisecondCounterHiRes();
-    const double dt  = (now - lastScratchTimeMs) * 0.001;
-    if (dt > 0.0005)
-    {
-        // Map angular velocity (rad/sec) → playback rate (1.0 = normal speed).
-        // Base vinyl spin = 0.55 rotations/sec, so one full rotation == ~1.8 s
-        // of audio at 1.0× — scratching at that rate equals normal playback.
-        constexpr float kBaseRotPerSec = 0.55f;
-        const float angVel = (float) (deltaAng / dt);
-        const float rate   = angVel / (kBaseRotPerSec * juce::MathConstants<float>::twoPi);
-        if (onScratchUpdate) onScratchUpdate (rate);
-    }
+    const float newAngle = angleFromMouse (e);
+    const float deltaAng = wrapPi (newAngle - lastMouseAngle);
+    // POSITION-BASED: hand the raw angular delta straight to the audio
+    // thread. The audio thread integrates it into its own playback
+    // position each block; the editor's timer then re-derives the visual
+    // wheel angle from that audio position, so the indicator stays
+    // locked to the actual audio location. We do NOT advance the visual
+    // angle here from mouse motion — that would let it drift away from
+    // the audio (which lerps toward desired with a ~25 ms time constant).
+    if (onScratchUpdate) onScratchUpdate (deltaAng);
     lastMouseAngle    = newAngle;
-    lastScratchTimeMs = now;
+    lastScratchTimeMs = juce::Time::getMillisecondCounterHiRes();
 }
 
 void TapeReelComponent::mouseUp (const juce::MouseEvent&)
@@ -344,9 +342,11 @@ void TapeReelComponent::paint (juce::Graphics& g)
     g.fillEllipse (bounds);
 
     // Concentric grooves — many thin rings, almost-but-not-quite black.
+    // innerLabelR is the small orange label radius; the grooves run from
+    // just outside the label out to the vinyl edge.
     g.setColour (juce::Colour::fromRGB (0x16, 0x16, 0x1a));
     const int   numGrooves   = 26;
-    const float innerLabelR  = radius * 0.34f;
+    const float innerLabelR  = radius * 0.18f;     // small label, mostly grooves
     const float outerGrooveR = radius * 0.98f;
     for (int i = 0; i < numGrooves; ++i)
     {
@@ -355,8 +355,12 @@ void TapeReelComponent::paint (juce::Graphics& g)
         g.drawEllipse (centre.x - r, centre.y - r, r * 2.0f, r * 2.0f, 0.6f);
     }
 
-    // Rotating element: a thin radial sheen + the orange label-marker. Wrap
-    // these in the rotation so they actually spin with the disc.
+    // Rotating element: a thin radial sheen + a HUGE "SP·L" printed across
+    // the black vinyl in white + a small orange label disc on top. All
+    // wrapped in the rotation so they spin with the disc. The oversized
+    // wordmark is clipped to the vinyl outline so the letters end CLEANLY
+    // at the disc edge (not spilling onto the silver chassis), like a
+    // record-sleeve graphic too big for the label.
     {
         juce::Graphics::ScopedSaveState save (g);
         g.addTransform (juce::AffineTransform::rotation (angle, centre.x, centre.y));
@@ -366,18 +370,36 @@ void TapeReelComponent::paint (juce::Graphics& g)
         g.drawLine (centre.x, centre.y - radius * 0.95f,
                     centre.x, centre.y + radius * 0.95f, 1.0f);
 
-        // Label area — flat orange disc with subtle ring.
+        // OVERSIZED SP·L across the vinyl in white. Light weight reads as
+        // type/artwork rather than UI text. Clipped to the vinyl circle so
+        // the wordmark stops exactly at the disc edge.
+        {
+            juce::Graphics::ScopedSaveState clipSave (g);
+            juce::Path vinylClip;
+            vinylClip.addEllipse (centre.x - radius, centre.y - radius,
+                                  radius * 2.0f, radius * 2.0f);
+            g.reduceClipRegion (vinylClip);
+
+            const float bigFontSize = radius * 1.25f;
+            g.setColour (juce::Colours::white);
+            g.setFont   (juce::Font (juce::FontOptions { bigFontSize, juce::Font::plain }));
+            const auto bigRect = juce::Rectangle<float> (centre.x - radius * 1.6f,
+                                                         centre.y - bigFontSize * 0.55f,
+                                                         radius * 3.2f,
+                                                         bigFontSize * 1.1f);
+            g.drawText (juce::String::fromUTF8 ("SP\xC2\xB7L"),    // SP·L
+                        bigRect, juce::Justification::centred, false);
+        }
+
+        // Small orange label disc on top — flat with a subtle darker ring.
+        // No text on the label; the giant white wordmark and the orange
+        // dot together carry the brand.
         g.setColour (kAccent);
         g.fillEllipse (centre.x - innerLabelR, centre.y - innerLabelR,
                        innerLabelR * 2.0f, innerLabelR * 2.0f);
         g.setColour (kAccent.darker (0.3f));
-        g.drawEllipse (centre.x - innerLabelR + 1.0f, centre.y - innerLabelR + 1.0f,
-                       innerLabelR * 2.0f - 2.0f, innerLabelR * 2.0f - 2.0f, 1.0f);
-
-        // Small dark mark on the label so the spin is visible.
-        const float markerR = innerLabelR * 0.55f;
-        g.setColour (juce::Colour::fromRGB (0x10, 0x10, 0x12));
-        g.fillEllipse (centre.x + markerR - 3.0f, centre.y - 3.0f, 6.0f, 6.0f);
+        g.drawEllipse (centre.x - innerLabelR + 0.5f, centre.y - innerLabelR + 0.5f,
+                       innerLabelR * 2.0f - 1.0f, innerLabelR * 2.0f - 1.0f, 1.0f);
     }
 
     // Spindle (centre hole) — always centred, doesn't rotate.
@@ -686,16 +708,27 @@ SpoolAudioProcessorEditor::SpoolAudioProcessorEditor (SpoolAudioProcessor& p)
 
     addAndMakeVisible (reel);
 
-    // Grab-the-vinyl scratching → drive playback rate from drag velocity.
-    reel.onScratchUpdate = [this] (float rate)
+    // Grab-the-vinyl scratching → POSITION-based: each mouse event pushes
+    // the angular delta (radians) into the processor's accumulator. The
+    // audio thread integrates it into playback position each block, so the
+    // audio follows the platter exactly like a real turntable.
+    //
+    // CRITICAL: do NOT call setScratching(true) on every drag — that's the
+    // reset-the-accumulator entry point. We only want that on mouseDown
+    // (i.e. when the user first grabs the reel). The reel widget already
+    // fires onScratchUpdate(0.0f) from mouseDown for that purpose; this
+    // path is for subsequent drags, which just push deltas.
+    reel.onScratchStart = [this]
     {
         processorRef.setScratching (true);
-        processorRef.setScratchRate (rate);
+    };
+    reel.onScratchUpdate = [this] (float deltaRadians)
+    {
+        processorRef.pushScratchAngleDelta (deltaRadians);
     };
     reel.onScratchEnd = [this]
     {
         processorRef.setScratching (false);
-        processorRef.setScratchRate (0.0f);
     };
 
     // JUCE Standalone auto-mutes input to prevent feedback loops on shared
@@ -1546,9 +1579,12 @@ void SpoolAudioProcessorEditor::paint (juce::Graphics& g)
         }
     }
 
-    // Playhead — light grey, distinct from the orange wave.
+    // Playhead — light grey, distinct from the orange wave. Drawn whenever
+    // anything is making sound: PLAY transport OR a MIDI voice (keyboard
+    // / arp). The MIDI fallback inside getNormalisedPosition feeds the
+    // most-recent voice's source-sample position when transport is off.
     const float norm = processorRef.getNormalisedPosition();
-    if (norm > 0.0f || processorRef.isPlaying())
+    if (norm > 0.0f || processorRef.isPlaying() || processorRef.isMidiPlaying())
     {
         const int x = fullNormToX (norm);
         if (x >= waveformArea.getX() && x <= waveformArea.getRight())
@@ -1819,8 +1855,16 @@ void SpoolAudioProcessorEditor::resized()
     }
     inner.removeFromBottom (8);
 
-    // ---- Top area: big reel centred, INPUT knob to its left, waveform below
-    const int reelSize = juce::jmin (220, inner.getHeight() - 110);
+    // ---- Top area: BIG reel centred, INPUT knob to its left, waveform below.
+    // Reel grows to fill the central area between INPUT (left column ~88 px)
+    // and SPEED (right column ~108 px). Small gutters so the vinyl visually
+    // dominates the device — the big spinning disc is THE feature. Capped
+    // vertically so it doesn't push into the BPM + waveform row beneath.
+    const int leftCol  = 88;
+    const int rightCol = 108;
+    const int hCap     = inner.getWidth() - leftCol - rightCol - 8;  // tight gutters
+    const int vCap     = inner.getHeight() - 96;                     // wf + controls below
+    const int reelSize = juce::jmax (180, juce::jmin (hCap, vCap));
     auto reelBounds = juce::Rectangle<int> (0, 0, reelSize, reelSize)
                          .withCentre ({ inner.getCentreX(), inner.getY() + reelSize / 2 + 4 });
     reel.setBounds (reelBounds);
@@ -2083,24 +2127,31 @@ void SpoolAudioProcessorEditor::timerCallback()
         }
     }
 
-    const auto playing = processorRef.isPlaying();
-
-    // Reel rotation: ~24 RPM (0.4 rotations/sec) while playing.
+    // Reel rotation. Two modes:
+    //  (a) RECORDING — there's no sample position to track, so spin at a
+    //      constant 33⅓-style rate just to indicate "tape is running".
+    //  (b) Otherwise — derive the wheel angle DIRECTLY from the audio's
+    //      current source-sample position. Rotation = posSec × baseRot ×
+    //      2π. This means the wheel angle is ALWAYS locked to where the
+    //      audio actually is, whether you're playing normally, MIDI-
+    //      sampling, or scratching. The indicator stays glued to the
+    //      song location, so you can scratch accurately.
     const double nowMs = juce::Time::getMillisecondCounterHiRes();
     const float  dt    = (float) ((nowMs - lastTickMs) * 0.001);  // seconds
     lastTickMs = nowMs;
 
-    if ((playing || processorRef.isRecording()) && ! reel.isScratching())
+    constexpr float kBaseRotPerSec = 0.55f;
+    if (processorRef.isRecording())
     {
-        // Vinyl spins at ~33⅓ RPM-feel base rate, multiplied by SPEED knob
-        // so the disc visibly slows down / speeds up as you varispeed.
-        // While the user is scratching, the disc follows the mouse instead.
-        constexpr float kBaseRotPerSec = 0.55f;
-        const float spinMul = processorRef.isRecording() ? 1.0f
-                                                         : processorRef.getPlaybackSpeed();
-        reelAngle += dt * kBaseRotPerSec * spinMul * juce::MathConstants<float>::twoPi;
+        reelAngle += dt * kBaseRotPerSec * juce::MathConstants<float>::twoPi;
         if (reelAngle > juce::MathConstants<float>::twoPi)
             reelAngle -= juce::MathConstants<float>::twoPi;
+        reel.setAngle (reelAngle);
+    }
+    else
+    {
+        const double posSec = processorRef.getPlayPositionSeconds();
+        reelAngle = (float) (posSec * (double) kBaseRotPerSec * juce::MathConstants<double>::twoPi);
         reel.setAngle (reelAngle);
     }
 

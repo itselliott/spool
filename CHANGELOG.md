@@ -33,6 +33,11 @@ Production-ready release. Major polish + new features on top of 1.0.0.
 - **HAZE preset labels** renamed to evocative names: VAULT, CHROME, NEST, MIST, ABYSS, AURA (was HALL/PLATE/ROOM/CHAMBER/CAVE/SHIMMER).
 
 ### Fixed
+- **Scratch overhaul** — DJ scratch wheel now behaves like a real turntable / waveform scrubber. Position-based: cursor angle drives audio position 1:1, mouse stops → audio stops, slow wind backwards → smooth slow reverse. Clicking the wheel engages immediately (no drag required) and audio is audible from sample 1. Underlying fixes: editor was resetting the accumulator on every drag (clobbering cumulative motion); the sample-read block was being skipped when PLAY transport was off (silenced scratch entirely); reverse wrap was clamping pos to 0 (stuck-at-sample-0 stutter); 1 ms lerp time constant was too tight (audio bursts then silenced between mouse events) — now 25 ms so audio plays continuously through scrub. Cartridge LP cutoff tracks rate magnitude.
+- **Vinyl reel angle locked to audio position** — the visual disc angle is now `playPosSec × baseRotPerSec × 2π` everywhere. Whether you're playing, scratching, MIDI-triggering, or scrubbing, the indicator on the disc is always exactly where the audio is. Release the wheel and re-grab: it's still there. Accurate scratching restored.
+- **Waveform playhead follows MIDI** — playback marker now tracks the most-recently-triggered MIDI voice when the PLAY transport is off (previously froze).
+- **Slot keys 1-8 no longer auto-loop** — loading a slot used to force `looping = true`; now slots play once unless the LOOP button is engaged.
+- **Keyboard focus survives clicks** — every interactive child has `setMouseClickGrabsKeyboardFocus(false)`; deferred grabKeyboardFocus on launch + after welcome overlay + after LO-FI toggle. Computer-keyboard notes + slot keys keep working without re-clicking the panel.
 - **BPM didn't propagate** — loop SIZE buttons stored fixed sample positions; changing BPM didn't recompute. Now atomically tracked + setBpm rescales the active loop window.
 - **Reel rotation orbited off-axis** — switched to SMIL `<animateTransform>` with absolute viewport-coord centre (CSS `transform-box` was unreliable across browsers).
 - **AURA shimmer was broken** — write/read positions desynced across channels, read pointer never advanced per-sample. Fixed with all-channels-per-sample processing + crossfaded dual read pointers to mask delay-line lap clicks.
@@ -50,6 +55,7 @@ Production-ready release. Major polish + new features on top of 1.0.0.
 - **Keyboard focus survives clicks** — every interactive child has `setMouseClickGrabsKeyboardFocus(false)`, plus the editor re-grabs focus at construction, after welcome-overlay dismissal, after LO-FI toggle. Computer-keyboard notes / slot keys / spacebar keep working without needing to click the panel between knob adjustments.
 
 ### Aesthetic
+- **Oversized vinyl reel with SP·L wordmark** — the central vinyl now dominates the chassis, with a giant white "SP·L" printed across the black surface (clipped to the disc edge) and a small orange centre dot. Spins as one piece, also serves as a clear spin indicator.
 - **Brushed-metal notched-pot knobs** replace the flat digital dials — 3D radial gradient body, faint brushing rings, dark recessed well with specular highlight on the rim, 13 tick marks where the active position glows accent.
 - **OLED-style BPM window** with neon-glow cascade (alpha layers under sharp text). Separate TAP TEMPO button next to it.
 - **LED-circle indicators** for INPUT comp voice and TAPE machine (was flat colored pills). Vector snowflake on FREEZE button (font-independent).

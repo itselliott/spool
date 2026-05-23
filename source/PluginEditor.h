@@ -123,7 +123,12 @@ class TapeReelComponent : public juce::Component
 public:
     TapeReelComponent() = default;
 
-    void setAngle (float radians) noexcept { if (! scratching) { angle = radians; repaint(); } }
+    // Angle is driven by the editor's timer from the audio playback
+    // position (so the visual rotation = actual audio location, scrub or
+    // play). We update regardless of scratching state — scratching scrubs
+    // the audio, which drives the wheel via this same path. That keeps
+    // visual + audio always locked together.
+    void setAngle (float radians) noexcept { angle = radians; repaint(); }
     void paint    (juce::Graphics&) override;
 
     // DJ-scratch interaction.
@@ -133,8 +138,9 @@ public:
     bool isScratching() const noexcept { return scratching; }
 
     // Callbacks (set by the editor):
-    std::function<void(float)> onScratchUpdate;  // signed playback rate
-    std::function<void()>      onScratchEnd;
+    std::function<void()>      onScratchStart;   // fired ONCE on mouseDown
+    std::function<void(float)> onScratchUpdate;  // angular delta per drag event
+    std::function<void()>      onScratchEnd;     // fired on mouseUp
 
 private:
     float  angleFromMouse (const juce::MouseEvent&) const noexcept;
