@@ -2,7 +2,7 @@
 
 A handheld-feel sampler / looper / field recorder inspired by the Teenage Engineering TP-7. Ships as a Windows VST3 plugin and a standalone app.
 
-![Silver vertical handheld with vinyl reel, BPM display, waveform window, eight loop slots, and three big effect knobs.](assets/bg.png)
+![Silver vertical handheld with vinyl reel, BPM display, waveform window, eight loop slots, and three big effect knobs.]
 
 > 💛 **Free & open source.** If SPOOL earns a place in your workflow, a one-off [Ko-fi tip](https://ko-fi.com/itselliott) or [GitHub Sponsorship](https://github.com/sponsors/itselliott) keeps the lights on. Zero pressure — the plugin stays free either way.
 
