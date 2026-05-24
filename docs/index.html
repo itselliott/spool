@@ -30,8 +30,10 @@
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#showcase">Showcase</a>
+      <a href="#linq">LINQ</a>
       <a href="#install">Install</a>
       <a href="#controls">Controls</a>
+      <a class="nav-suite-pill" href="https://itselliott.github.io/drift/" target="_blank" rel="noopener">SP&middot;L &times; DF-T &rarr;</a>
       <a class="nav-cta" href="https://github.com/itselliott/spool" target="_blank" rel="noopener">GitHub &rarr;</a>
     </div>
   </div>
@@ -45,7 +47,7 @@
     <div class="hero-copy">
       <div class="hero-eyebrow">
         <span class="dot"></span>
-        v1.0.1&nbsp;&middot;&nbsp;VST3&nbsp;+&nbsp;Standalone&nbsp;&middot;&nbsp;Windows&nbsp;/&nbsp;macOS&nbsp;/&nbsp;Linux
+        v1.1.0&nbsp;&middot;&nbsp;VST3&nbsp;+&nbsp;Standalone&nbsp;&middot;&nbsp;Windows&nbsp;/&nbsp;macOS&nbsp;/&nbsp;Linux
       </div>
 
       <h1 class="hero-title">
@@ -55,13 +57,13 @@
 
       <p class="hero-tagline">
         a sampler, looper and field recorder<br />
-        in the spirit of the <s class="strike">$1,499</s> Teenage&nbsp;Engineering&nbsp;TP&minus;7.
+        in the spirit of the <s class="strike">$1,599</s> Teenage&nbsp;Engineering&nbsp;TP&minus;7.
       </p>
 
       <div class="hero-price-row">
         <div class="price-card price-tp7">
           <div class="price-label">TP-7 hardware</div>
-          <div class="price-value">$1,499</div>
+          <div class="price-value">$1,599</div>
           <div class="price-fine">USD&nbsp;&middot; portable handheld</div>
         </div>
         <div class="price-vs">vs</div>
@@ -75,7 +77,7 @@
       <div class="cta-row">
         <a class="cta cta-primary" href="https://github.com/itselliott/spool/releases/latest" target="_blank" rel="noopener">
           <span class="cta-icon">&darr;</span>
-          <span>Download&nbsp;v1.0.1</span>
+          <span>Download&nbsp;v1.1.0</span>
         </a>
         <a class="cta cta-ghost" href="https://github.com/itselliott/spool" target="_blank" rel="noopener">
           <span class="cta-icon">&#9733;</span>
@@ -550,6 +552,93 @@
   </div>
 </section>
 
+<!-- ============================ LINQ × DRIFT ============================ -->
+<section id="linq" class="linq">
+  <div class="section-head">
+    <div class="kicker">SP&middot;L &times; DF-T &mdash; the suite</div>
+    <h2>Pair SPOOL with DRIFT &mdash; via LINQ.</h2>
+    <p class="lede">
+      SPOOL has a sibling: <strong>DRIFT</strong>, a Big&minus;Time-style
+      hybrid analog/digital echo plugin. Run both as standalones and they
+      share audio directly via a custom shared-memory link &mdash; no
+      virtual audio cable, no DAW, ~one audio-block of latency.
+    </p>
+  </div>
+
+  <div class="linq-frame">
+    <div class="linq-diagram">
+      <div class="linq-node spool">
+        <div class="node-mark">SP&middot;L</div>
+        <div class="node-name">SPOOL</div>
+        <div class="node-role">
+          Sampler / looper /<br />
+          field recorder.<br />
+          <em>Producer.</em>
+        </div>
+      </div>
+
+      <div class="linq-arrow">
+        <span class="linq-pill">LINQ</span>
+        <span class="arrows">&rarr;&rarr;&rarr;</span>
+      </div>
+
+      <div class="linq-node drift">
+        <div class="node-mark">DF-T</div>
+        <div class="node-name">DRIFT</div>
+        <div class="node-role">
+          Big-Time-style<br />
+          echo + ambience.<br />
+          <em>Consumer.</em>
+        </div>
+      </div>
+    </div>
+
+    <p class="linq-desc">
+      DRIFT subscribes to a named shared-memory mapping. SPOOL writes its
+      output buffer into the same mapping. A heartbeat in the header lets
+      each side detect whether its partner is alive. Under the hood: Win32
+      file mapping plus a single-producer / single-consumer lock-free
+      ring buffer &mdash; the trick is no other plugin suite is doing it.
+    </p>
+
+    <div class="linq-steps">
+      <div class="linq-step">
+        <div class="linq-step-num">01</div>
+        <div class="linq-step-text">Run both <strong>SPOOL.exe</strong> and <strong>DRIFT.exe</strong> as standalones.</div>
+      </div>
+      <div class="linq-step">
+        <div class="linq-step-num">02</div>
+        <div class="linq-step-text">Click the <strong>LINQ pill</strong> in each (next to the wordmark).</div>
+      </div>
+      <div class="linq-step">
+        <div class="linq-step-num">03</div>
+        <div class="linq-step-text">Both pills turn <span class="linq-green">green</span> &mdash; audio is flowing.</div>
+      </div>
+      <div class="linq-step">
+        <div class="linq-step-num">04</div>
+        <div class="linq-step-text">Sample loops in SP&middot;L, smear them through DRIFT's echo + ambience engine.</div>
+      </div>
+    </div>
+
+    <div class="linq-light-row">
+      <span class="linq-light"><span class="linq-light-dot off"></span>off &mdash; LINQ disabled</span>
+      <span class="linq-light"><span class="linq-light-dot amber"></span>amber &mdash; waiting for partner</span>
+      <span class="linq-light"><span class="linq-light-dot green"></span>green &mdash; linked, audio flowing</span>
+    </div>
+
+    <div class="linq-cta-row">
+      <a class="cta cta-primary" href="https://itselliott.github.io/drift/" target="_blank" rel="noopener">
+        <span class="cta-icon">&rarr;</span>
+        <span>Visit&nbsp;DRIFT</span>
+      </a>
+      <a class="cta cta-ghost" href="https://github.com/itselliott/drift/releases/latest" target="_blank" rel="noopener">
+        <span class="cta-icon">&darr;</span>
+        <span>Download&nbsp;DRIFT</span>
+      </a>
+    </div>
+  </div>
+</section>
+
 <!-- ============================ INSTALL ============================ -->
 <section id="install" class="install">
   <div class="section-head">
@@ -828,6 +917,7 @@ cmake --build build --config Release</code><button class="copy-btn" type="button
       <a href="https://github.com/itselliott/spool/releases" target="_blank" rel="noopener">Releases</a>
       <a href="https://github.com/itselliott/spool/issues" target="_blank" rel="noopener">Report a bug</a>
       <a href="https://github.com/itselliott/spool/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      <a href="https://itselliott.github.io/drift/" target="_blank" rel="noopener">DRIFT &rarr;</a>
     </div>
 
     <div class="footer-fine">

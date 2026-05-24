@@ -791,6 +791,27 @@ SpoolAudioProcessorEditor::SpoolAudioProcessorEditor (SpoolAudioProcessor& p)
     };
     addAndMakeVisible (lofiButton);
 
+    // --- LINK toggle: streams SP-L's rendered output into the DriftLink
+    // shared-memory ring so a companion standalone (DRIFT) can consume it
+    // as its input — no virtual audio cable, ~one audio block of latency.
+    // The pill goes amber when LINK is on but nothing's listening, green
+    // when a consumer is reading. Status is repainted from the timer below.
+    linkButton.setButtonText ("LINQ");
+    linkButton.setClickingTogglesState (true);
+    linkButton.setToggleState (processorRef.isLinkEnabled(), juce::dontSendNotification);
+    linkButton.setColour (juce::TextButton::buttonColourId,
+                          juce::Colour::fromRGB (0x18, 0x18, 0x1c));
+    linkButton.setColour (juce::TextButton::buttonOnColourId,
+                          juce::Colour::fromRGB (0xff, 0xb4, 0x4a));  // amber initial; runtime override below
+    linkButton.setColour (juce::TextButton::textColourOffId,
+                          juce::Colour::fromRGB (0x9a, 0x9a, 0xa2));
+    linkButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    linkButton.onClick = [this] {
+        processorRef.setLinkEnabled (linkButton.getToggleState());
+        grabKeyboardFocus();
+    };
+    addAndMakeVisible (linkButton);
+
     // LO-FI dry/wet — same brushed-metal style as the JUICE knobs but in
     // KNOB-ONLY mode (no name/value labels, slider fills the whole bounds
     // so the hitbox matches the visible knob exactly). Hot-pink accent so
@@ -1697,6 +1718,10 @@ void SpoolAudioProcessorEditor::resized()
         const int lofiY = wordmarkArea.getBottom() + 2;
         lofiButton.setBounds (lofiX, lofiY, lofiW, lofiH);
 
+        // LINK pill — same row, just right of LO-FI. Reads as a paired mode
+        // switch ("LO-FI" + "LINK") sharing the wordmark's bottom edge.
+        linkButton.setBounds (lofiX + lofiW + 6, lofiY, lofiW, lofiH);
+
         // LO-FI dry/wet knob — only visible when LO-FI is on. Knob-only
         // mode (no labels), placed DIRECTLY UNDER the LO-FI pill, centred
         // horizontally on the pill's centre line. Hitbox = visible knob.
@@ -2212,6 +2237,23 @@ void SpoolAudioProcessorEditor::timerCallback()
         processorRef.stopRecording(); // finalize buffer into a Sample
         repaint();
     }
+
+    // LINK status — green when a DriftLink consumer (DRIFT) is reading,
+    // amber when LINK is on but nothing's attached. setColour is cheap, but
+    // only repaint when the colour actually changes to avoid a 30-FPS churn.
+    if (processorRef.isLinkEnabled())
+    {
+        const auto target = processorRef.isLinkConsumerAlive()
+                              ? juce::Colour::fromRGB (0x4a, 0xc8, 0x6a)
+                              : juce::Colour::fromRGB (0xff, 0xb4, 0x4a);
+        if (linkButton.findColour (juce::TextButton::buttonOnColourId) != target)
+        {
+            linkButton.setColour (juce::TextButton::buttonOnColourId, target);
+            linkButton.repaint();
+        }
+    }
+    if (linkButton.getToggleState() != processorRef.isLinkEnabled())
+        linkButton.setToggleState (processorRef.isLinkEnabled(), juce::dontSendNotification);
 }
 
 void SpoolAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)

@@ -7,6 +7,8 @@
 #include <atomic>
 #include <memory>
 
+#include "DriftLink.h"
+
 //==============================================================================
 /**
     A loaded audio sample, ref-counted so the audio thread can hold a local
@@ -326,6 +328,14 @@ public:
     // 40 % wet level we landed on for taste).
     void  setLofiMix (float v) noexcept { lofiMix.store (juce::jlimit (0.0f, 1.0f, v)); }
     float getLofiMix() const noexcept   { return lofiMix.load(); }
+
+    // --- LINK: stream SP·L's rendered output into a shared-memory ring buffer
+    // so DRIFT (or any other DriftLink-aware standalone) can pick it up as
+    // its input with zero kernel-driver detours. Toggled by a LED pill on
+    // the chassis; nothing happens until LINK is ON.
+    void  setLinkEnabled (bool b) noexcept { linkEnabled.store (b); }
+    bool  isLinkEnabled() const noexcept   { return linkEnabled.load(); }
+    bool  isLinkConsumerAlive() const noexcept { return linkProducer.isConsumerAlive(); }
 
     // Save / load the entire SPOOL set (samples in all 8 slots + every
     // knob/button/effect state + tempo + signal-path order) to a single
@@ -704,6 +714,12 @@ private:
 
     // Host sample rate (set in prepareToPlay).
     double hostSampleRate = 44100.0;
+
+    // ---- DriftLink: shared-memory producer that streams the rendered
+    // output to a companion standalone (DRIFT). Open in prepareToPlay,
+    // close in releaseResources; per-block writes gated by linkEnabled.
+    std::atomic<bool>     linkEnabled { false };
+    DriftLink::Producer   linkProducer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpoolAudioProcessor)
 };

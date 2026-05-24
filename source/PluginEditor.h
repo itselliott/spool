@@ -669,6 +669,12 @@ private:
     juce::TextButton lofiButton;        // LO-FI master toggle — framed pill under SP-L
     JuiceKnob        lofiKnob { "" };   // LO-FI dry/wet — shown only when LO-FI is on
 
+    // LINK toggle: streams SP-L's rendered output into a shared-memory ring
+    // so a companion DriftLink-aware standalone (DRIFT) can consume it as
+    // its input. Sits to the right of the LO-FI pill on the wordmark row.
+    // Background turns green when a consumer is alive, amber when waiting.
+    juce::TextButton linkButton;
+
     // Pre-rendered film-grain frames. Cycled through on the editor's timer
     // so the LO-FI overlay has subtle animated noise (tape grain), without
     // paying for fresh noise generation every paint().

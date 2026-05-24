@@ -271,10 +271,20 @@ void SpoolAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         hazePreHpState[ch] = hazePreHpPrev[ch] = 0.0f;
         hazePostLpState[ch] = 0.0f;
     }
+
+    // ---- DriftLink: open the shared-memory mapping so DRIFT (or any
+    // companion app) can pull our rendered output. LINK on/off just gates
+    // the per-block write; the mapping stays open the whole session.
+    if (! linkProducer.isOpen())
+        linkProducer.open();
+    linkProducer.prepare (sampleRate,
+                          juce::jmin (getTotalNumOutputChannels(), 2));
 }
 
 void SpoolAudioProcessor::releaseResources()
 {
+    linkProducer.shutdown();
+    linkProducer.close();
 }
 
 bool SpoolAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -1781,6 +1791,21 @@ void SpoolAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (newPos >= recCap)
             recording.store (false);
     }
+
+    // ---- DriftLink: push the rendered output to the shared-memory ring so
+    // companion standalones (DRIFT) can consume it. Skipped silently when
+    // LINK is off, so this costs ~one atomic load in the common case.
+    //
+    // Local-output muting policy: only zero the buffer when a CONSUMER is
+    // actually alive on the other end. Otherwise we silence offline
+    // renders, plugin-scan sweeps, and "LINK armed but DRIFT not running"
+    // sessions — none of which the user expects to be muted.
+    if (linkEnabled.load() && linkProducer.isOpen())
+    {
+        linkProducer.write (buffer, juce::jmin (buffer.getNumChannels(), 2));
+        if (linkProducer.isConsumerAlive() && ! isNonRealtime())
+            buffer.clear();
+    }
 }
 
 //==============================================================================
@@ -2770,7 +2795,7 @@ juce::AudioProcessorEditor* SpoolAudioProcessor::createEditor()
 namespace
 {
     constexpr int kStateMagic   = 0x53504F4C; // 'SPOL'
-    constexpr int kStateVersion = 3;            // v3: + LO-FI dry/wet knob
+    constexpr int kStateVersion = 4;            // v4: + DriftLink toggle
 
     inline void writeAudioBuffer (juce::MemoryOutputStream& s,
                                   const juce::AudioBuffer<float>* buf,
@@ -2904,6 +2929,8 @@ void SpoolAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     out.writeBool (lofiMode.load());
     // v3 — LO-FI dry/wet knob (visible only when LO-FI is engaged).
     out.writeFloat (lofiMix.load());
+    // v4 — DriftLink toggle (stream output to companion standalone).
+    out.writeBool (linkEnabled.load());
 
     juce::Logger::writeToLog (juce::String::formatted (
         "getStateInformation: %d bytes written", (int) destData.getSize()));
@@ -3029,6 +3056,10 @@ void SpoolAudioProcessor::setStateInformation (const void* data, int sizeInBytes
         lofiMix.store (juce::jlimit (0.0f, 1.0f, in.readFloat()));
     else
         lofiMix.store (0.8f);
+    if (version >= 4 && in.getNumBytesRemaining() >= 1)
+        linkEnabled.store (in.readBool());
+    else
+        linkEnabled.store (false);
 
     juce::Logger::writeToLog ("setStateInformation: restored");
 }
@@ -3098,6 +3129,10 @@ void SpoolAudioProcessor::resetAllParameters()
     // return the device to its clean / hi-fi default character.
     lofiMode.store (false);
     lofiMix.store (0.8f);
+
+    // INTENTIONALLY does NOT touch linkEnabled — DriftLink is a connection
+    // state to a companion app (DRIFT), not an audio parameter. The user
+    // should be able to RESET their knobs without re-establishing the chain.
 
     // Tempo back to default 120
     setBpm (120.0);
